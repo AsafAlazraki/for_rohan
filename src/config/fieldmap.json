@@ -1,0 +1,83 @@
+{
+  "_comment": "Scoped field mapping (Task 11). Two top-level directions — crmToMarketo (CRM authoritative) and marketoToCrm (Marketo authoritative, narrow per spec §Operational Behaviour). Each entry has shape { source, type, entitySet?, optionSet?, derivation? }. type ∈ text|choice|lookup|boolean|guid|derived. Choice/lookup/derived entries are declared here; their runtime resolvers are Tasks 11b/12/13. Until then, choice and lookup entries pass through as text.",
+  "crmToMarketo": {
+    "account": {
+      "company":             { "source": "name",                     "type": "text" },
+      "accountNumber":       { "source": "accountnumber",            "type": "text" },
+      "eProfile":            { "source": "ubt_eprofile",             "type": "choice", "optionSet": "ubt_eprofile" },
+      "keyAccountManager":   { "source": "_ubt_keyaccountmanager_value", "type": "lookup", "entitySet": "systemusers" },
+      "accountType":         { "source": "ubt_accounttype",          "type": "choice", "optionSet": "ubt_accounttype" },
+      "marketType":          { "source": "ubt_markettype",           "type": "choice", "optionSet": "ubt_markettype" },
+      "tradingModel":        { "source": "ubt_tradingmodel",         "type": "choice", "optionSet": "ubt_tradingmodel" },
+      "industryClassification": { "source": "_ubt_industryclassification_value", "type": "lookup", "entitySet": "ubt_industryclassifications" },
+      "website":             { "source": "websiteurl",               "type": "text" },
+      "mainPhone":           { "source": "telephone1",               "type": "text" },
+      "industry":            { "source": "industrycode",             "type": "choice", "optionSet": "industrycode" },
+      "annualRevenue":       { "source": "revenue",                  "type": "text" },
+      "numberOfEmployees":   { "source": "numberofemployees",        "type": "text" },
+      "billingStreet":       { "source": "address1_line1",           "type": "text" },
+      "billingCity":         { "source": "address1_city",            "type": "text" },
+      "billingState":        { "source": "address1_stateorprovince", "type": "text" },
+      "billingPostalCode":   { "source": "address1_postalcode",      "type": "text" },
+      "billingCountry":      { "source": "address1_country",         "type": "text" }
+    },
+    "contact": {
+      "firstName":           { "source": "firstname",                "type": "text" },
+      "lastName":            { "source": "lastname",                 "type": "text" },
+      "email":               { "source": "emailaddress1",            "type": "text" },
+      "title":               { "source": "jobtitle",                 "type": "text" },
+      "phone":               { "source": "telephone1",               "type": "text" },
+      "mobilePhone":         { "source": "mobilephone",              "type": "text" },
+      "addressLine1":        { "source": "address1_line1",           "type": "text" },
+      "city":                { "source": "address1_city",            "type": "text" },
+      "postalCode":          { "source": "address1_postalcode",      "type": "text" },
+      "country":             { "source": "_ubt_address1_country_value", "type": "lookup", "entitySet": "ubt_countries" },
+      "communityMember":     { "source": "ubt_communitymember",      "type": "choice", "optionSet": "ubt_communitymember" },
+      "contactAccountType":  { "source": "@derived",                 "type": "derived", "derivation": "parentAccountType" },
+      "unsubscribed":        { "source": "donotbulkemail",           "type": "boolean" },
+      "crmEntityType":       { "source": "@literal",                 "type": "literal", "value": "contact" },
+      "crmContactId":        { "source": "contactid",                "type": "guid" }
+    },
+    "lead": {
+      "firstName":           { "source": "firstname",                "type": "text" },
+      "lastName":            { "source": "lastname",                 "type": "text" },
+      "email":               { "source": "emailaddress1",            "type": "text" },
+      "title":               { "source": "jobtitle",                 "type": "text" },
+      "phone":               { "source": "telephone1",               "type": "text" },
+      "mobilePhone":         { "source": "mobilephone",              "type": "text" },
+      "addressLine1":        { "source": "address1_line1",           "type": "text" },
+      "city":                { "source": "address1_city",            "type": "text" },
+      "postalCode":          { "source": "address1_postalcode",      "type": "text" },
+      "country":             { "source": "_ubt_countryid_value",     "type": "lookup", "entitySet": "ubt_countries" },
+      "personSource":        { "source": "leadsourcecode",           "type": "choice", "optionSet": "leadsourcecode" },
+      "subject":             { "source": "subject",                  "type": "text" },
+      "description":         { "source": "description",              "type": "text" },
+      "owningBusinessUnit":  { "source": "_owningbusinessunit_value","type": "lookup", "entitySet": "businessunits" },
+      "crmLeadStatus":       { "source": "statuscode",               "type": "choice", "optionSet": "statuscode" },
+      "crmLeadState":        { "source": "statecode",                "type": "choice", "optionSet": "statecode" },
+      "communityMember":     { "source": "ubt_communitymember",      "type": "choice", "optionSet": "ubt_communitymember" },
+      "unsubscribed":        { "source": "donotbulkemail",           "type": "boolean" },
+      "crmEntityType":       { "source": "@literal",                 "type": "literal", "value": "lead" },
+      "crmLeadId":           { "source": "leadid",                   "type": "guid" }
+    }
+  },
+  "marketoToCrm": {
+    "contact": {
+      "donotbulkemail":      { "source": "unsubscribed",             "type": "boolean" }
+    },
+    "lead": {
+      "firstname":           { "source": "firstName",                "type": "text" },
+      "lastname":            { "source": "lastName",                 "type": "text" },
+      "emailaddress1":       { "source": "email",                    "type": "text" },
+      "jobtitle":            { "source": "title",                    "type": "text" },
+      "telephone1":          { "source": "phone",                    "type": "text" },
+      "mobilephone":         { "source": "mobilePhone",              "type": "text" },
+      "address1_line1":      { "source": "addressLine1",             "type": "text" },
+      "address1_city":       { "source": "city",                     "type": "text" },
+      "address1_postalcode": { "source": "postalCode",               "type": "text" },
+      "companyname":         { "source": "company",                  "type": "text" },
+      "subject":             { "source": "subject",                  "type": "text" },
+      "description":         { "source": "description",              "type": "text" }
+    }
+  }
+}

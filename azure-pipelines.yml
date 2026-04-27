@@ -1,0 +1,173 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Azure DevOps pipeline — dynamics-marketo-sync
+#
+#  Deploys:
+#    Frontend (web/dist)   → Azure Static Web Apps
+#    Backend  (Docker)     → Azure Container Registry → Azure App Service (Linux, container)
+#
+#  Prerequisites in Azure (set up once, outside this pipeline):
+#    1. A resource group, e.g. rg-sync-poc
+#    2. Azure Container Registry, e.g. syncpocacr.azurecr.io
+#    3. Azure App Service plan (Linux) + App Service configured for container
+#       deployment from that ACR (name e.g. sync-api-poc)
+#    4. Azure Static Web Apps resource (name e.g. sync-web-poc); copy its
+#       deployment token
+#    5. An Azure DevOps Service Connection (Azure Resource Manager) scoped to
+#       the subscription/resource group. Reference it as $(azureServiceConnection).
+#
+#  Pipeline variables (define in the Azure DevOps UI → Pipeline → Variables):
+#    azureServiceConnection   — name of the ARM service connection
+#    acrName                  — e.g. syncpocacr (without .azurecr.io)
+#    acrLoginServer           — e.g. syncpocacr.azurecr.io
+#    backendAppName           — App Service name, e.g. sync-api-poc
+#    backendAppUrl            — e.g. https://sync-api-poc.azurewebsites.net
+#    staticWebAppDeployToken  — SECRET: SWA deployment token
+#    staticWebAppUrl          — e.g. https://happy-tree-123.4.azurestaticapps.net
+#
+#  Runtime secrets for the backend App Service (set in Azure portal →
+#  App Service → Configuration → Application settings — NOT here):
+
+#    REDIS_URL, DYNAMICS_WEBHOOK_SECRET, MARKETO_WEBHOOK_SECRET,
+#    ALLOWED_ORIGINS (= $(staticWebAppUrl))
+# ─────────────────────────────────────────────────────────────────────────────
+
+trigger:
+  branches:
+    include: [main, master]
+pr:
+  branches:
+    include: [main, master]
+
+variables:
+  imageRepository: 'dynamics-marketo-sync'
+  tag:             '$(Build.BuildId)'
+  nodeVersion:     '18.x'
+
+stages:
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 1 · Test
+# ════════════════════════════════════════════════════════════════════════════
+- stage: Test
+  displayName: Unit and integration tests
+  jobs:
+  - job: Test
+    displayName: Run Jest
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: $(nodeVersion)
+      displayName: Install Node $(nodeVersion)
+
+    - script: npm ci
+      displayName: Install backend deps
+
+    - script: npm --prefix web ci
+      displayName: Install frontend deps
+
+    - script: npm --prefix web run build
+      displayName: Build frontend (smoke)
+
+    - script: npm test
+      displayName: Jest
+      env:
+        NODE_ENV:                test
+        DYNAMICS_TENANT_ID:      test-tenant
+        DYNAMICS_CLIENT_ID:      test-client
+        DYNAMICS_CLIENT_SECRET:  test-secret
+        DYNAMICS_RESOURCE_URL:   https://test.crm.dynamics.com
+        DYNAMICS_WEBHOOK_SECRET: test-dyn-wh
+        MARKETO_BASE_URL:        https://test.mktorest.com
+        MARKETO_CLIENT_ID:       test-mkto-client
+        MARKETO_CLIENT_SECRET:   test-mkto-secret
+        MARKETO_WEBHOOK_SECRET:  test-mkto-wh
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 2 · Build and push backend Docker image
+# ════════════════════════════════════════════════════════════════════════════
+- stage: BuildBackend
+  displayName: Build backend image
+  dependsOn: Test
+  condition: and(succeeded(), in(variables['Build.SourceBranchName'], 'main', 'master'))
+  jobs:
+  - job: Docker
+    displayName: Docker build and push to ACR
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: AzureCLI@2
+      displayName: Login to ACR
+      inputs:
+        azureSubscription: $(azureServiceConnection)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: az acr login --name $(acrName)
+
+    - task: Docker@2
+      displayName: Build and push
+      inputs:
+        command: buildAndPush
+        repository: '$(acrLoginServer)/$(imageRepository)'
+        dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
+        buildContext: '$(Build.SourcesDirectory)'
+        tags: |
+          $(tag)
+          latest
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 3 · Deploy backend to App Service (container)
+# ════════════════════════════════════════════════════════════════════════════
+- stage: DeployBackend
+  displayName: Deploy backend to App Service
+  dependsOn: BuildBackend
+  jobs:
+  - deployment: AppService
+    displayName: Update App Service container image
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: 'production-backend'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: Deploy container to App Service
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              appName:           $(backendAppName)
+              imageName:         '$(acrLoginServer)/$(imageRepository):$(tag)'
+
+# ════════════════════════════════════════════════════════════════════════════
+#  STAGE 4 · Build and deploy frontend (Azure Static Web Apps)
+# ════════════════════════════════════════════════════════════════════════════
+- stage: DeployFrontend
+  displayName: Deploy frontend to Static Web Apps
+  dependsOn: DeployBackend
+  jobs:
+  - job: SWA
+    displayName: Build web and deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: $(nodeVersion)
+
+    - script: npm --prefix web ci
+      displayName: Install frontend deps
+
+    - script: npm --prefix web run build
+      displayName: Vite build with backend URL baked in
+      env:
+        VITE_API_BASE: $(backendAppUrl)
+
+    - task: AzureStaticWebApp@0
+      displayName: Deploy to Azure Static Web Apps
+      inputs:
+        app_location: 'web/dist'
+        output_location: ''
+        skip_app_build: true
+        skip_api_build: true
+        azure_static_web_apps_api_token: $(staticWebAppDeployToken)

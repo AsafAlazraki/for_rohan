@@ -1,0 +1,11 @@
+node_modules/
+.git/
+coverage/
+.env
+.env.example
+.claude/
+tests/
+docs/
+.github/
+web/node_modules/
+web/dist/

@@ -1,0 +1,52 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+.npm
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+certs/
+
+# ── Build / output ────────────────────────────────────────────────────────────
+dist/
+build/
+coverage/
+*.tgz
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+.dockerignore.local
+
+# ── Jest ──────────────────────────────────────────────────────────────────────
+jest_0/
+components/pubsub.azure-servicebus.yaml
+scratch/check_db.js
+scratch/check_defaults.js
+scratch/check_old.js
+scratch/check_recent_failures.js
+scratch/check_schema.js
+scratch/check_states.js
+scratch/check_status.js
+scratch/check_tables.js
+
+# ── Local tooling / per-user state (not repo-shared) ─────────────────────────
+.claude/
+.marketo_fields*.json
+temp_*.jsx
+temp_*.js

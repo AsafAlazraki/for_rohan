@@ -1,0 +1,71 @@
+{
+  "name": "dynamics-marketo-sync",
+  "version": "1.0.0",
+  "description": "Bidirectional real-time sync service between Microsoft Dynamics CRM and Marketo",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "dev:web": "npm --prefix web run dev",
+    "test": "jest --coverage --forceExit",
+    "test:unit": "jest tests/unit --forceExit",
+    "test:e2e": "jest tests/e2e --forceExit",
+    "lint": "eslint \"src/**/*.js\"",
+    "build:web": "npm --prefix web run build",
+    "setup": "npm ci && npm --prefix web ci && npm run verify",
+    "precommit": "node scripts/assess-architecture.js && npm run lint && npm run build:web && npm test && npm run test:e2e && node scripts/update-architecture.js"
+  },
+  "dependencies": {
+    "@azure/service-bus": "^7.9.5",
+    "axios": "^1.6.2",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.3.2",
+    "helmet": "^8.1.0",
+    "pg": "^8.11.3",
+    "pg-boss": "^9.0.3",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0",
+    "jest": "^30.0.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^7.0.0"
+  },
+  "overrides": {
+    "test-exclude": "^7.0.1",
+    "glob": "^13.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coverageDirectory": "coverage",
+    "collectCoverageFrom": [
+      "src/**/*.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/web/"
+    ]
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rohangajadhar/Dynamics.Marketo.Integration.POC.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/rohangajadhar/Dynamics.Marketo.Integration.POC/issues"
+  },
+  "homepage": "https://github.com/rohangajadhar/Dynamics.Marketo.Integration.POC#readme"
+}

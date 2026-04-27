@@ -1,0 +1,38 @@
+[
+  {
+    "sid": "/summary",
+    "title": "Summary",
+    "level": 2,
+    "children": []
+  },
+  {
+    "sid": "/company",
+    "title": "Company",
+    "level": 2,
+    "children": []
+  },
+  {
+    "sid": "/contact",
+    "title": "Contact",
+    "level": 2,
+    "children": []
+  },
+  {
+    "sid": "/leads",
+    "title": "Leads",
+    "level": 2,
+    "children": []
+  },
+  {
+    "sid": "/relationships",
+    "title": "Relationships",
+    "level": 2,
+    "children": []
+  },
+  {
+    "sid": "/industry-classification",
+    "title": "Industry Classification",
+    "level": 2,
+    "children": []
+  }
+]

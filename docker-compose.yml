@@ -1,0 +1,18 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Single-service stack. No Redis, no local Postgres — the queue lives in
+
+
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    image: dynamics-marketo-sync:local
+    container_name: sync_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env

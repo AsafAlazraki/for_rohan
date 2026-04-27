@@ -1,0 +1,33 @@
+# railway.toml — Railway deployment configuration
+# https://docs.railway.com/reference/config-as-code
+#
+# Deploy steps:
+#   1. Install Railway CLI:  npm install -g @railway/cli
+#   2. Login:                railway login
+#   3. Link project:         railway link
+#   4. Deploy:               railway up
+#
+# Required service add-ons (provision via Railway dashboard or CLI):
+#   railway add --plugin redis
+#   railway add --plugin postgresql
+#
+# Required environment variables — set in Railway dashboard under Variables:
+#   DYNAMICS_TENANT_ID, DYNAMICS_CLIENT_ID, DYNAMICS_CLIENT_SECRET,
+#   DYNAMICS_RESOURCE_URL, DYNAMICS_WEBHOOK_SECRET,
+#   MARKETO_BASE_URL, MARKETO_CLIENT_ID, MARKETO_CLIENT_SECRET,
+#   MARKETO_WEBHOOK_SECRET
+#
+# Railway injects DATABASE_URL and REDIS_URL automatically when you add
+# the PostgreSQL and Redis plugins — no manual configuration needed.
+
+[build]
+builder       = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand          = "node src/index.js"
+healthcheckPath       = "/health"
+healthcheckTimeout    = 300
+restartPolicyType     = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+numReplicas           = 1

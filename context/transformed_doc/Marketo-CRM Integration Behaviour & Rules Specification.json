@@ -1,0 +1,132 @@
+[
+  {
+    "sid": "/marketo--dynamics-365-crm",
+    "title": "Marketo ↔ Dynamics 365 CRM",
+    "level": 1,
+    "children": [
+      {
+        "sid": "/background--governance",
+        "title": "Background & Governance",
+        "level": 2,
+        "parent": "/marketo--dynamics-365-crm",
+        "children": [
+          {
+            "sid": "/system-of-record--authority",
+            "title": "System of Record & Authority",
+            "level": 3,
+            "parent": "/background--governance",
+            "children": []
+          },
+          {
+            "sid": "/integration-scope",
+            "title": "Integration Scope",
+            "level": 3,
+            "parent": "/background--governance",
+            "children": []
+          },
+          {
+            "sid": "/crm--marketo-sync-trigger-conditions",
+            "title": "CRM → Marketo Sync Trigger Conditions",
+            "level": 3,
+            "parent": "/background--governance",
+            "children": []
+          }
+        ]
+      },
+      {
+        "sid": "/matching--data-model",
+        "title": "Matching & Data Model",
+        "level": 2,
+        "parent": "/marketo--dynamics-365-crm",
+        "children": [
+          {
+            "sid": "/account--company-matching-rules",
+            "title": "Account → Company Matching Rules",
+            "level": 3,
+            "parent": "/matching--data-model",
+            "children": []
+          },
+          {
+            "sid": "/person-lead--contact-matching--update-rules",
+            "title": "Person (Lead / Contact) Matching & Update Rules",
+            "level": 3,
+            "parent": "/matching--data-model",
+            "children": []
+          },
+          {
+            "sid": "/primary-matching-key",
+            "title": "Primary Matching Key",
+            "level": 3,
+            "parent": "/matching--data-model",
+            "children": []
+          },
+          {
+            "sid": "/marketo--crm-behaviour-explicit-exception",
+            "title": "Marketo → CRM Behaviour (Explicit Exception)",
+            "level": 3,
+            "parent": "/matching--data-model",
+            "children": [
+              {
+                "sid": "/1-match-marketo-person-to-crm-record-using-crmcontactid-contact-id",
+                "title": "1. Match Marketo Person to CRM record using crmContactId (Contact ID)",
+                "level": 4,
+                "parent": "/marketo--crm-behaviour-explicit-exception",
+                "children": []
+              },
+              {
+                "sid": "/2-verify-the-crm-contact-exists-and-is-eligible-for-update-eg-not-deletedmergedinactive",
+                "title": "2. Verify the CRM Contact exists and is eligible for update (e.g., not deleted/merged/inactive)",
+                "level": 4,
+                "parent": "/marketo--crm-behaviour-explicit-exception",
+                "children": []
+              },
+              {
+                "sid": "/3-confirm-the-resolved-record-represents-a-crm-contact",
+                "title": "3. Confirm the resolved record represents a CRM Contact",
+                "level": 4,
+                "parent": "/marketo--crm-behaviour-explicit-exception",
+                "children": []
+              },
+              {
+                "sid": "/4-update-consent-fields-only",
+                "title": "4. Update consent fields only",
+                "level": 4,
+                "parent": "/marketo--crm-behaviour-explicit-exception",
+                "children": []
+              }
+            ]
+          },
+          {
+            "sid": "/lead-vs-contact-determination-in-marketo",
+            "title": "Lead vs Contact Determination in Marketo",
+            "level": 3,
+            "parent": "/matching--data-model",
+            "children": []
+          },
+          {
+            "sid": "/person--company-association",
+            "title": "Person → Company Association",
+            "level": 3,
+            "parent": "/matching--data-model",
+            "children": []
+          }
+        ]
+      },
+      {
+        "sid": "/operational-behaviour",
+        "title": "Operational Behaviour",
+        "level": 2,
+        "parent": "/marketo--dynamics-365-crm",
+        "children": [
+          {
+            "sid": "/marketo-lead--crm-sync-eligibility-criteria-tbd",
+            "title": "Marketo Lead → CRM Sync Eligibility Criteria (TBD)",
+            "level": 3,
+            "parent": "/operational-behaviour",
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+]
