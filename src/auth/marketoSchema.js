@@ -117,7 +117,20 @@ async function createCustomFields({ fields, baseUrl, token } = {}) {
   let failed = 0;
   const results = [];
 
+  let bailedOnPermission = false;
   for (const field of fields) {
+    if (bailedOnPermission) {
+      // Once we know the API user can't write schema, skip remaining
+      // fields rather than firing the same denial three times.
+      failed += 1;
+      results.push({
+        name:         field.name,
+        status:       'failed',
+        error:        '603: Access denied (schema-write permission missing)',
+        accessDenied: true,
+      });
+      continue;
+    }
     try {
       const { data } = await axios.post(
         `${baseUrl}/rest/v1/leads/schema/fields.json`,
@@ -131,11 +144,21 @@ async function createCustomFields({ fields, baseUrl, token } = {}) {
       );
 
       if (!data.success) {
+        const errors = data.errors || [];
+        // Marketo error code 603 = "Access denied" — typically the API user
+        // is missing the "Read-Write Schema Custom Fields" role permission.
+        // Marketo returns HTTP 200 with success:false, so we surface this
+        // ourselves rather than relying on the HTTP layer.
+        const permDenied = errors.some(e => String(e.code) === '603');
         failed += 1;
         results.push({
-          name: field.name, status: 'failed',
-          error: JSON.stringify(data.errors || []),
+          name:         field.name,
+          status:       'failed',
+          error:        errors.map(e => `${e.code}:${e.message}`).join('; ') || JSON.stringify(errors),
+          accessDenied: permDenied || undefined,
+          httpStatus:   permDenied ? 403 : undefined,
         });
+        if (permDenied) bailedOnPermission = true;
         continue;
       }
 

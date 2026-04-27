@@ -44,17 +44,32 @@ router.post('/setup-custom-fields', async (_req, res) => {
   try {
     const result = await createCustomFields();
     const permissionFailure = result.results.find(
-      r => r.httpStatus === 401 || r.httpStatus === 403,
+      r => r.accessDenied || r.httpStatus === 401 || r.httpStatus === 403,
     );
     if (permissionFailure) {
       return res.status(502).json({
         ...result,
+        accessDenied: true,
         error: permissionFailure.error,
         hint:
           'The Marketo API user does not have the "Read-Write Schema Custom Fields" ' +
-          'permission. Either grant it temporarily, or have a Marketo admin create the ' +
-          'fields manually in Admin → Field Management with these names: ' +
-          REQUIRED_LEAD_FIELDS.map(f => f.name).join(', ') + '.',
+          'permission (Marketo returned error 603 — Access Denied). You have two choices:',
+        manualSetup: {
+          steps: [
+            'Open Marketo Admin → Field Management.',
+            'Click "New Custom Field" and create each of the fields below.',
+            'Once all three exist, reload this page — the banner will clear.',
+          ],
+          fields: REQUIRED_LEAD_FIELDS.map(f => ({
+            name:        f.name,
+            displayName: f.displayName,
+            dataType:    f.dataType,
+            description: f.description,
+          })),
+          permissionFix:
+            'Alternatively, ask your Marketo admin to grant the "Read-Write Schema ' +
+            'Custom Fields" role permission to the API user, then click "Try again".',
+        },
       });
     }
     logger.info(

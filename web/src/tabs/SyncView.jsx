@@ -611,40 +611,63 @@ export default function SyncView({ flash }) {
   // ── Marketo schema status (banner + setup button) ─────────────────────
   // Surfaces "you haven't created the custom fields yet" up-front instead
   // of letting the operator hit a silent drop in the writer's auto-filter.
-  const [schemaStatus, setSchemaStatus] = useState(null);   // { ready, missing, schemaAccessible } | null
+  const [schemaStatus, setSchemaStatus] = useState(null);   // { ready, missing, schemaAccessible, requiredFields } | null
   const [schemaSettingUp, setSchemaSettingUp] = useState(false);
   const [schemaBannerDismissed, setSchemaBannerDismissed] = useState(false);
+  // When setup hits 603 / 401 / 403, the route returns a `manualSetup` blob
+  // we surface inline so the operator can either fix permissions or create
+  // the fields themselves in Marketo Admin.
+  const [schemaSetupError, setSchemaSetupError] = useState(null); // { error, hint, manualSetup } | null
+
+  async function refreshSchemaStatus() {
+    try {
+      const status = await getMarketoSchemaStatus();
+      setSchemaStatus(status);
+      return status;
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        const status = await getMarketoSchemaStatus();
-        if (!cancelled) setSchemaStatus(status);
-      } catch {
-        // Silent — banner just doesn't appear if status check fails.
-      }
+      const status = await refreshSchemaStatus();
+      if (cancelled) return; // eslint-disable-line no-unused-expressions
+      if (!status) return;
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onMarketoSetupClick() {
     setSchemaSettingUp(true);
+    setSchemaSetupError(null);
     try {
       const r = await setupMarketoCustomFields();
       if (r.failed > 0) {
-        flash('err', r.error || `Setup failed: ${r.results.map(x => x.name + (x.error ? ` (${x.error})` : '')).join('; ')}`);
+        // Permission denied or partial failure — keep the inline error so
+        // the banner expands with manual-setup guidance.
+        setSchemaSetupError(r);
+        if (r.accessDenied) {
+          flash('err', 'Marketo access denied — see the banner for next steps.');
+        } else {
+          flash('err', r.error || `Setup failed: ${r.results.map(x => x.name + (x.error ? ` (${x.error})` : '')).join('; ')}`);
+        }
       } else {
         flash('ok', `Marketo fields ready — ${r.created} created, ${r.alreadyExisted} already existed.`);
-        // Re-check status so the banner clears.
-        const fresh = await getMarketoSchemaStatus();
-        setSchemaStatus(fresh);
+        await refreshSchemaStatus();
       }
     } catch (e) {
       flash('err', `Setup failed: ${e.message}`);
+      setSchemaSetupError({ error: e.message });
     } finally {
       setSchemaSettingUp(false);
     }
+  }
+
+  async function onMarketoSetupRetry() {
+    setSchemaSetupError(null);
+    await onMarketoSetupClick();
   }
 
   const schemaBannerVisible =
@@ -907,64 +930,150 @@ export default function SyncView({ flash }) {
       {schemaBannerVisible && (
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
             margin: '0 24px 12px',
-            padding: '12px 16px',
+            padding: schemaSetupError ? '14px 18px' : '12px 16px',
             borderRadius: 10,
-            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.10), rgba(168, 85, 247, 0.02))',
-            border: '1px solid rgba(168, 85, 247, 0.3)',
+            background: schemaSetupError
+              ? 'linear-gradient(135deg, rgba(234, 179, 8, 0.10), rgba(234, 179, 8, 0.02))'
+              : 'linear-gradient(135deg, rgba(168, 85, 247, 0.10), rgba(168, 85, 247, 0.02))',
+            border: schemaSetupError
+              ? '1px solid rgba(234, 179, 8, 0.35)'
+              : '1px solid rgba(168, 85, 247, 0.3)',
           }}
         >
-          <Building2 size={18} style={{ color: '#c4b5fd', flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
-              Marketo schema not yet set up for Contact-vs-Lead filtering
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Building2
+              size={18}
+              style={{ color: schemaSetupError ? '#facc15' : '#c4b5fd', flexShrink: 0 }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                {schemaSetupError
+                  ? (schemaSetupError.accessDenied
+                      ? 'Automatic setup blocked — Marketo access denied'
+                      : 'Marketo setup did not finish')
+                  : 'Marketo schema not yet set up for Contact-vs-Lead filtering'}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                {schemaSetupError
+                  ? (schemaSetupError.hint
+                      || schemaSetupError.error
+                      || 'See instructions below.')
+                  : `The custom fields ${(schemaStatus.missing || []).join(', ')} are missing from your Marketo Lead schema. Until they exist, those values are silently dropped from every sync.`}
+              </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              The custom fields {(schemaStatus.missing || []).join(', ')} are missing from your Marketo Lead schema.
-              Until they exist, those values are silently dropped from every sync.
-            </div>
+            {!schemaSetupError && (
+              <button
+                type="button"
+                disabled={schemaSettingUp}
+                onClick={onMarketoSetupClick}
+                style={{
+                  height: 34, padding: '0 16px', borderRadius: 17, border: 'none',
+                  background: schemaSettingUp ? 'rgba(168, 85, 247, 0.18)' : 'linear-gradient(135deg, #a855f7, #9333ea)',
+                  color: '#fff', fontSize: 12, fontWeight: 700,
+                  cursor: schemaSettingUp ? 'wait' : 'pointer',
+                  boxShadow: schemaSettingUp ? 'none' : '0 4px 12px rgba(168, 85, 247, 0.3)',
+                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {schemaSettingUp && <RefreshCw size={12} className="spin" />}
+                {schemaSettingUp ? 'Setting up…' : 'Set up Marketo fields'}
+              </button>
+            )}
+            {schemaSetupError && (
+              <button
+                type="button"
+                disabled={schemaSettingUp}
+                onClick={onMarketoSetupRetry}
+                title="Re-run after fixing permissions"
+                style={{
+                  height: 34, padding: '0 16px', borderRadius: 17,
+                  border: '1px solid rgba(234, 179, 8, 0.5)',
+                  background: 'transparent', color: '#facc15',
+                  fontSize: 12, fontWeight: 700,
+                  cursor: schemaSettingUp ? 'wait' : 'pointer',
+                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {schemaSettingUp && <RefreshCw size={12} className="spin" />}
+                {schemaSettingUp ? 'Retrying…' : 'Try again'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setSchemaBannerDismissed(true); setSchemaSetupError(null); }}
+              aria-label="Dismiss"
+              title="Dismiss"
+              style={{
+                width: 28, height: 28, borderRadius: 6,
+                border: 'none', background: 'transparent', color: 'var(--muted)',
+                cursor: 'pointer', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <X size={14} />
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={schemaSettingUp}
-            onClick={onMarketoSetupClick}
-            style={{
-              height: 34,
-              padding: '0 16px',
-              borderRadius: 17,
-              border: 'none',
-              background: schemaSettingUp ? 'rgba(168, 85, 247, 0.18)' : 'linear-gradient(135deg, #a855f7, #9333ea)',
-              color: '#fff',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: schemaSettingUp ? 'wait' : 'pointer',
-              boxShadow: schemaSettingUp ? 'none' : '0 4px 12px rgba(168, 85, 247, 0.3)',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            {schemaSettingUp && <RefreshCw size={12} className="spin" />}
-            {schemaSettingUp ? 'Setting up…' : 'Set up Marketo fields'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setSchemaBannerDismissed(true)}
-            aria-label="Dismiss"
-            title="Dismiss"
-            style={{
-              width: 28, height: 28, borderRadius: 6,
-              border: 'none', background: 'transparent', color: 'var(--muted)',
-              cursor: 'pointer', flexShrink: 0,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}
-          >
-            <X size={14} />
-          </button>
+
+          {/* Inline manual-setup guidance when the API path is blocked */}
+          {schemaSetupError?.manualSetup && (
+            <div
+              style={{
+                marginTop: 14,
+                padding: 14,
+                borderRadius: 8,
+                background: 'rgba(255,255,255,0.02)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ fontSize: 11, color: '#facc15', textTransform: 'uppercase', letterSpacing: '0.6px', fontWeight: 700, marginBottom: 8 }}>
+                Manual setup — Marketo Admin → Field Management
+              </div>
+              <ol style={{ margin: '0 0 12px 18px', padding: 0, fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+                {(schemaSetupError.manualSetup.steps || []).map((s, i) => (
+                  <li key={i}>{s}</li>
+                ))}
+              </ol>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(schemaSetupError.manualSetup.fields || []).map(f => (
+                  <div
+                    key={f.name}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '180px 160px 1fr',
+                      gap: 12,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      background: 'rgba(255,255,255,0.025)',
+                      border: '1px solid var(--border)',
+                      fontSize: 12,
+                    }}
+                  >
+                    <code style={{ fontFamily: 'var(--mono)', fontSize: 12, color: '#7dd3fc' }}>{f.name}</code>
+                    <span style={{ color: 'var(--text)' }}>{f.displayName}</span>
+                    <span style={{ color: 'var(--muted)' }}>
+                      <span
+                        style={{
+                          fontSize: 10, padding: '1px 6px', borderRadius: 4,
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid var(--border)', marginRight: 6,
+                          textTransform: 'uppercase', letterSpacing: '0.4px', fontWeight: 700,
+                        }}
+                      >
+                        {f.dataType}
+                      </span>
+                      {f.description}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {schemaSetupError.manualSetup.permissionFix && (
+                <div style={{ marginTop: 12, fontSize: 11, color: 'var(--muted)', lineHeight: 1.5, fontStyle: 'italic' }}>
+                  {schemaSetupError.manualSetup.permissionFix}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
