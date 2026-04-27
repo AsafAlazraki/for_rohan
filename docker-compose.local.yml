@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Local-dev overlay. Used alongside docker-compose.yml to give you a
+#  fully self-contained stack (app + Postgres) on Docker Desktop.
+#
+#  Usage from repo root:
+#    docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+#  The Postgres data lives in a named volume (sync_pg_data) so it survives
+#  `docker compose down`. Wipe it with `docker compose down -v`.
+#
+#  db/schema.sql is mounted into Postgres' init dir — it runs automatically
+#  the first time the container starts (only, not on subsequent restarts).
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  app:
+    environment:
+      # In-network connection string. The `postgres` host name is the service
+      # below, resolved by Docker's compose DNS. SSL is disabled for the
+      # local container (TLS isn't needed inside the docker bridge).
+      DATABASE_URL: postgres://sync:sync@postgres:5432/sync?sslmode=disable
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: sync_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: sync
+      POSTGRES_PASSWORD: sync
+      POSTGRES_DB: sync
+    volumes:
+      - sync_pg_data:/var/lib/postgresql/data
+      # Auto-applies the schema on first start. Idempotent — only runs when
+      # the data directory is empty.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sync -d sync"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  sync_pg_data:
