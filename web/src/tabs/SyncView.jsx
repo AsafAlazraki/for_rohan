@@ -24,6 +24,7 @@ import {
   pullRecords, transferRecords,
   previewBundleSync, runBundleSync,
   getMarketoSchemaStatus, setupMarketoCustomFields,
+  simulateUnsubscribe, unsubscribeAndSync,
 } from '../lib/api.js';
 import { openSyncStream } from '../lib/sse.js';
 
@@ -675,6 +676,41 @@ export default function SyncView({ flash }) {
     && !schemaStatus.ready
     && !schemaBannerDismissed;
 
+  // ── Simulate Marketo → Dynamics unsubscribe ───────────────────────────
+  // Operator-triggered shortcut for the spec-compliant authority exception:
+  // Marketo flips a Person's `unsubscribed` flag → backend PATCHes the
+  // matching Dynamics Contact's `donotbulkemail = true`. Lets you test
+  // the flow without setting up a Marketo Smart Campaign first.
+  const [unsubEmail, setUnsubEmail] = useState('');
+  const [unsubContactId, setUnsubContactId] = useState('');
+  const [unsubRunning, setUnsubRunning] = useState(false);
+  const [unsubResult, setUnsubResult] = useState(null);
+
+  async function onSimulateUnsubscribeClick() {
+    const email = (unsubEmail || '').trim();
+    const crmContactId = (unsubContactId || '').trim();
+    if (!email && !crmContactId) {
+      flash('err', 'Enter an email OR a Dynamics contactid GUID first.');
+      return;
+    }
+    setUnsubRunning(true);
+    setUnsubResult(null);
+    try {
+      const r = await simulateUnsubscribe({
+        email:        email || undefined,
+        crmContactId: crmContactId || undefined,
+      });
+      setUnsubResult(r);
+      if (r.ok) flash('ok', `Patched donotbulkemail=true on Contact ${r.result.targetId}.`);
+      else      flash('err', `Skipped: ${r.result.reason}`);
+    } catch (e) {
+      setUnsubResult({ ok: false, error: e.message });
+      flash('err', `Simulation failed: ${e.message}`);
+    } finally {
+      setUnsubRunning(false);
+    }
+  }
+
   // ── Bundle sync (Sync with Company) ───────────────────────────────────
   // Two-phase flow: preview (read-only) → confirm → live sequential push.
   // Only available D→M, only for Contact / Lead, only with selections on the
@@ -730,6 +766,45 @@ export default function SyncView({ flash }) {
 
   function onBundleCancel() {
     setBundlePreview(null);
+  }
+
+  // ── Unsubscribe & Sync — Marketo column action ─────────────────────────
+  // Combined flow: marks selected Marketo Persons as unsubscribed in
+  // Marketo, then triggers the CRM sync that patches each matching
+  // Dynamics Contact's donotbulkemail = true. Modal shows step-by-step
+  // outcomes per row.
+  const [unsubBundleResult, setUnsubBundleResult] = useState(null); // { summary, results } | null
+  const [unsubBundleRunning, setUnsubBundleRunning] = useState(false);
+
+  const unsubBundleEligible =
+    entity === 'contact'
+    && (direction === 'm2d' || direction === 'both')
+    && !inListMode
+    && selectedMkt.length > 0;
+
+  async function onUnsubscribeAndSyncClick() {
+    if (!unsubBundleEligible) {
+      return flash('err', 'Pick ≥1 Marketo Person on the Marketo column first (entity=Contact, direction=Marketo→Dynamics).');
+    }
+    const sourceIds = selectedMkt.map(r => r.id || r.marketoId).filter(Boolean).map(String);
+    if (sourceIds.length === 0) {
+      return flash('err', 'Selected Marketo rows are missing the Marketo `id` field — pull again.');
+    }
+    setUnsubBundleRunning(true);
+    setUnsubBundleResult(null);
+    try {
+      const r = await unsubscribeAndSync({ sourceIds });
+      setUnsubBundleResult(r);
+      const tone = r.summary.failed > 0 ? 'err' : 'ok';
+      flash(tone,
+        `Marketo updated: ${r.summary.marketoUpdated} · Dynamics patched: ${r.summary.dynamicsPatched} · ` +
+        `skipped: ${r.summary.skipped} · failed: ${r.summary.failed}`,
+      );
+    } catch (e) {
+      flash('err', `Unsubscribe & Sync failed: ${e.message}`);
+    } finally {
+      setUnsubBundleRunning(false);
+    }
   }
 
   // ── Account-list submit flow ──────────────────────────────────────────
@@ -1077,6 +1152,100 @@ export default function SyncView({ flash }) {
         </div>
       )}
 
+      {/* Simulate Marketo → Dynamics unsubscribe — for testing without a real Smart Campaign */}
+      <div
+        style={{
+          margin: '0 24px 12px',
+          padding: '14px 18px',
+          borderRadius: 10,
+          background: 'rgba(56, 189, 248, 0.04)',
+          border: '1px solid rgba(56, 189, 248, 0.18)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Info size={16} style={{ color: 'var(--accent)' }} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                Simulate Marketo unsubscribe → Dynamics
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                Triggers the same path a real Marketo Smart Campaign webhook would. Patches <code style={{ fontFamily: 'var(--mono)' }}>donotbulkemail = true</code> on the matching Dynamics Contact.
+              </div>
+            </div>
+          </div>
+          <div style={{ flex: '1 1 320px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <input
+              type="text"
+              value={unsubEmail}
+              onChange={e => setUnsubEmail(e.target.value)}
+              placeholder="email@example.com"
+              style={{
+                width: 220, height: 32, padding: '0 10px',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text)', fontSize: 13, outline: 'none',
+              }}
+            />
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>or</span>
+            <input
+              type="text"
+              value={unsubContactId}
+              onChange={e => setUnsubContactId(e.target.value)}
+              placeholder="contactid (GUID)"
+              style={{
+                width: 220, height: 32, padding: '0 10px',
+                background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)',
+                borderRadius: 8, color: 'var(--text)', fontSize: 13, outline: 'none',
+                fontFamily: 'var(--mono)',
+              }}
+            />
+            <button
+              type="button"
+              disabled={unsubRunning}
+              onClick={onSimulateUnsubscribeClick}
+              style={{
+                height: 32, padding: '0 14px', borderRadius: 16,
+                border: 'none', background: unsubRunning ? 'rgba(56,189,248,0.18)' : 'var(--accent)',
+                color: '#050b14', fontSize: 12, fontWeight: 700,
+                cursor: unsubRunning ? 'wait' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {unsubRunning && <RefreshCw size={12} className="spin" />}
+              {unsubRunning ? 'Running…' : 'Simulate Unsubscribe'}
+            </button>
+          </div>
+        </div>
+        {unsubResult && (
+          <div
+            style={{
+              marginTop: 12, padding: '10px 12px', borderRadius: 8,
+              background: unsubResult.ok ? 'rgba(34, 197, 94, 0.08)' : 'rgba(234, 179, 8, 0.08)',
+              border: `1px solid ${unsubResult.ok ? 'rgba(34, 197, 94, 0.3)' : 'rgba(234, 179, 8, 0.3)'}`,
+              fontSize: 12, color: 'var(--text)',
+            }}
+          >
+            {unsubResult.error ? (
+              <div style={{ color: 'var(--err)' }}><strong>Error:</strong> {unsubResult.error}</div>
+            ) : unsubResult.ok ? (
+              <div>
+                <strong>Success:</strong> {unsubResult.hint}
+                <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  Job: {unsubResult.jobId} · Contact: {unsubResult.result?.targetId}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <strong>Skipped:</strong> {unsubResult.hint}
+                <div className="mono" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  Reason: {unsubResult.result?.reason}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {(currentRule.kind === 'conditional' || currentRule.kind === 'forbidden') && (() => {
         const isForbidden = currentRule.kind === 'forbidden';
         const accentRgb = isForbidden ? '239, 68, 68' : '234, 179, 8';
@@ -1222,6 +1391,36 @@ export default function SyncView({ flash }) {
                     Sync with Company{selectedDyn.length > 0 ? ` (${selectedDyn.length})` : ''}
                   </button>
                 )}
+
+                {entity === 'contact' && !inListMode && (() => {
+                  const unsubDisabled = transferring || !unsubBundleEligible;
+                  const unsubTitle = !unsubBundleEligible
+                    ? (selectedMkt.length === 0
+                        ? 'Pick ≥1 Marketo-side row first'
+                        : direction === 'd2m'
+                          ? 'Unsubscribe & Sync only runs Marketo → Dynamics'
+                          : 'Available only for Contact entity')
+                    : `Mark ${selectedMkt.length} Marketo Person${selectedMkt.length === 1 ? '' : 's'} as unsubscribed and sync to Dynamics`;
+                  const unsubStyle = {
+                    ...baseStyle,
+                    background: unsubDisabled ? 'rgba(234, 179, 8, 0.18)' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+                    color:      unsubDisabled ? 'rgba(252, 211, 77, 0.6)' : '#1c1917',
+                    boxShadow:  unsubDisabled ? 'none' : '0 4px 12px rgba(245, 158, 11, 0.3)',
+                    cursor:     unsubDisabled ? 'not-allowed' : 'pointer',
+                  };
+                  return (
+                    <button
+                      type="button"
+                      disabled={unsubDisabled}
+                      onClick={onUnsubscribeAndSyncClick}
+                      title={unsubTitle}
+                      style={unsubStyle}
+                    >
+                      {unsubBundleRunning && <RefreshCw size={12} className="spin" />}
+                      Unsubscribe &amp; Sync{selectedMkt.length > 0 ? ` (${selectedMkt.length})` : ''}
+                    </button>
+                  );
+                })()}
               </>
             );
           })()}
@@ -1452,6 +1651,16 @@ export default function SyncView({ flash }) {
           onCancel={onBundleCancel}
           onConfirm={onBundleConfirm}
           onClose={() => { setBundleResult(null); setBundlePreview(null); setBundleProgress(null); }}
+        />
+      )}
+
+      {/* Unsubscribe & Sync — result modal */}
+      {(unsubBundleRunning || unsubBundleResult) && (
+        <UnsubscribeBundleModal
+          running={unsubBundleRunning}
+          result={unsubBundleResult}
+          rowCount={selectedMkt.length}
+          onClose={() => setUnsubBundleResult(null)}
         />
       )}
     </div>
@@ -1880,6 +2089,248 @@ function BundleRowList({ rows, expanded, toggleRow, bodiesShown, toggleBodies, m
         />
       ))}
     </ul>
+  );
+}
+
+// ─── Unsubscribe & Sync — result modal ─────────────────────────────────────
+function UnsubscribeBundleModal({ running, result, rowCount, onClose }) {
+  const [showJson, setShowJson] = useState({});
+  function toggleJson(id) {
+    setShowJson(prev => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1200,
+        background: 'rgba(5, 11, 20, 0.65)', backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+        animation: 'sv-fade-in 0.18s ease',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 'min(760px, 96vw)', maxHeight: '88vh',
+          display: 'flex', flexDirection: 'column',
+          background: 'var(--panel)',
+          borderRadius: 16,
+          border: '1px solid rgba(245, 158, 11, 0.25)',
+          boxShadow: '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+          overflow: 'hidden',
+          animation: 'sv-modal-rise 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '20px 24px',
+            background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.02))',
+            borderBottom: '1px solid rgba(245, 158, 11, 0.18)',
+            display: 'flex', alignItems: 'center', gap: 14,
+          }}
+        >
+          <div
+            style={{
+              width: 40, height: 40, borderRadius: 10,
+              background: 'rgba(245, 158, 11, 0.14)',
+              border: '1px solid rgba(245, 158, 11, 0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#fcd34d', flexShrink: 0,
+            }}
+          >
+            <AlertCircle size={20} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
+              {running ? 'Unsubscribing in Marketo + syncing to Dynamics…' : 'Unsubscribe & Sync — Result'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {running
+                ? `Processing ${rowCount} Marketo Person${rowCount === 1 ? '' : 's'}`
+                : `Processed ${result?.summary?.total ?? 0} of ${rowCount} row${rowCount === 1 ? '' : 's'}`}
+            </div>
+          </div>
+          {!running && (
+            <button
+              type="button" onClick={onClose} aria-label="Close"
+              style={{
+                width: 32, height: 32, borderRadius: 8, border: 'none',
+                background: 'rgba(255,255,255,0.04)', color: 'var(--muted)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {running && (
+            <div style={{ padding: '32px 0', textAlign: 'center' }}>
+              <RefreshCw size={28} className="spin" style={{ color: '#fcd34d', marginBottom: 14 }} />
+              <div style={{ fontSize: 14, color: 'var(--muted)', lineHeight: 1.6 }}>
+                Step 1: PATCH each Marketo Person → unsubscribed = true<br />
+                Step 2: Authority router → handleGlobalUnsubscribe<br />
+                Step 3: PATCH Dynamics Contact → donotbulkemail = true
+              </div>
+            </div>
+          )}
+
+          {!running && result && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 18 }}>
+                <UnsubStat label="Marketo updated"  value={result.summary.marketoUpdated}  color="#f59e0b" />
+                <UnsubStat label="Dynamics patched" value={result.summary.dynamicsPatched} color="#22c55e" />
+                <UnsubStat label="Skipped"          value={result.summary.skipped}         color="#facc15" />
+                <UnsubStat label="Failed"           value={result.summary.failed}          color="#ef4444" />
+              </div>
+
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {result.results.map(r => (
+                  <li
+                    key={r.marketoId}
+                    style={{
+                      padding: '12px 14px', borderRadius: 10,
+                      background: 'rgba(255,255,255,0.02)',
+                      border: '1px solid var(--border)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.identifier || r.marketoId}
+                        </div>
+                        <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                          Marketo id {r.marketoId}{r.crmContactId ? ` · CRM ${r.crmContactId}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleJson(r.marketoId)}
+                        style={{
+                          fontSize: 11, padding: '4px 10px', borderRadius: 12,
+                          border: '1px solid var(--border)', background: 'transparent',
+                          color: 'var(--muted)', cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >
+                        {showJson[r.marketoId] ? 'Hide JSON' : 'Show JSON'}
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                      <StepCard
+                        label="Marketo"
+                        ok={r.marketo?.ok}
+                        ok_text={r.marketo?.status === 'updated' ? 'unsubscribed=true (updated)'
+                                : r.marketo?.status === 'skipped' ? 'unsubscribed=true (already)'
+                                : 'updated'}
+                        fail_text={r.marketo?.error || r.error}
+                      />
+                      <StepCard
+                        label="Dynamics"
+                        ok={r.dynamics?.ok}
+                        ok_text={r.dynamics?.contactId
+                          ? `donotbulkemail=true on ${r.dynamics.contactId.slice(0, 8)}…`
+                          : 'donotbulkemail=true'}
+                        fail_text={r.dynamics?.reason || r.dynamics?.error || r.error}
+                      />
+                    </div>
+
+                    {r.summary && (
+                      <div
+                        style={{
+                          marginTop: 10, padding: '8px 12px', borderRadius: 8,
+                          background: r.dynamics?.ok ? 'rgba(34,197,94,0.10)' : 'rgba(234,179,8,0.10)',
+                          border: `1px solid ${r.dynamics?.ok ? 'rgba(34,197,94,0.3)' : 'rgba(234,179,8,0.3)'}`,
+                          fontSize: 12, color: 'var(--text)', fontWeight: 600,
+                        }}
+                      >
+                        {r.summary}
+                      </div>
+                    )}
+
+                    {showJson[r.marketoId] && (
+                      <pre
+                        style={{
+                          margin: '10px 0 0', padding: 12,
+                          background: '#080c12', borderRadius: 6,
+                          fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
+                          overflow: 'auto', maxHeight: 220,
+                          border: '1px solid var(--border)',
+                        }}
+                      >
+                        {JSON.stringify(r, null, 2)}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        <div
+          style={{
+            padding: '14px 24px', borderTop: '1px solid var(--border)',
+            background: 'rgba(255,255,255,0.01)',
+            display: 'flex', justifyContent: 'flex-end', gap: 10,
+          }}
+        >
+          {!running && (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                height: 36, padding: '0 22px', borderRadius: 18, border: 'none',
+                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                color: '#1c1917', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                boxShadow: '0 6px 18px rgba(245, 158, 11, 0.35)',
+              }}
+            >
+              Done
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UnsubStat({ label, value, color }) {
+  return (
+    <div style={{ padding: '12px', borderRadius: 10, background: `${color}10`, border: `1px solid ${color}33`, textAlign: 'center' }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1.2 }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 4 }}>{label}</div>
+    </div>
+  );
+}
+
+function StepCard({ label, ok, ok_text, fail_text }) {
+  const palette = ok
+    ? { bg: 'rgba(34,197,94,0.08)', border: 'rgba(34,197,94,0.3)', icon: '#22c55e', label: 'OK' }
+    : { bg: 'rgba(234,179,8,0.08)',  border: 'rgba(234,179,8,0.3)',  icon: '#facc15', label: 'SKIP/FAIL' };
+  return (
+    <div
+      style={{
+        padding: '8px 12px',
+        borderRadius: 6,
+        background: palette.bg,
+        border: `1px solid ${palette.border}`,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        {ok ? <CheckCircle2 size={12} style={{ color: palette.icon }} /> : <AlertCircle size={12} style={{ color: palette.icon }} />}
+        <span style={{ fontSize: 10, fontWeight: 700, color: palette.icon, textTransform: 'uppercase', letterSpacing: '0.4px' }}>
+          {label}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text)', lineHeight: 1.4 }}>
+        {ok ? ok_text : (fail_text || 'no detail')}
+      </div>
+    </div>
   );
 }
 

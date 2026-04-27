@@ -285,4 +285,94 @@ async function writeMarketoCompany(data, token, _attempt = 0) {
   }
 }
 
-module.exports = { writeToMarketo, writeMarketoCompany };
+/**
+ * Read a single Marketo Lead by id. Returns the row's `email` and the
+ * `crmContactId` / `crmLeadId` custom fields if Marketo's schema has them.
+ * Used by the unsubscribe-and-sync flow to find the matching Dynamics
+ * Contact after flipping the Marketo Person's `unsubscribed` flag.
+ *
+ * @param {{ marketoId: string|number, token: string }} args
+ * @returns {Promise<object|null>}
+ */
+async function readMarketoLeadById({ marketoId, token }) {
+  const baseUrl = await getConfig('MARKETO_BASE_URL');
+  if (!baseUrl) throw new Error('[writers/marketo] MARKETO_BASE_URL not set');
+  if (!marketoId) throw new Error('[writers/marketo] readMarketoLeadById: marketoId required');
+
+  try {
+    const { data } = await axios.get(
+      `${baseUrl}/rest/v1/lead/${encodeURIComponent(marketoId)}.json`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        params:  { fields: 'id,email,crmContactId,crmLeadId,crmEntityType,firstName,lastName' },
+      },
+    );
+    if (!data || !data.success) return null;
+    return data.result?.[0] || null;
+  } catch (err) {
+    if (err.response?.status === 404) return null;
+    throw unwrapAxiosError(err, '[writers/marketo] read lead by id');
+  }
+}
+
+/**
+ * Mark a Marketo Lead as `unsubscribed = true`. Idempotent — Marketo's
+ * `updateOnly` action returns `status: 'updated'` even when the field is
+ * already true.
+ *
+ * @param {{ marketoId: string|number, token: string }} args
+ * @returns {Promise<{ ok: boolean, status: string, marketoId: string }>}
+ */
+async function markMarketoLeadUnsubscribed({ marketoId, token }) {
+  const baseUrl = await getConfig('MARKETO_BASE_URL');
+  if (!baseUrl) throw new Error('[writers/marketo] MARKETO_BASE_URL not set');
+  if (!marketoId) throw new Error('[writers/marketo] markMarketoLeadUnsubscribed: marketoId required');
+
+  try {
+    const { data } = await axios.post(
+      `${baseUrl}/rest/v1/leads.json`,
+      {
+        action:      'updateOnly',
+        lookupField: 'id',
+        input:       [{ id: Number(marketoId), unsubscribed: true }],
+      },
+      {
+        headers: {
+          Authorization:  `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    if (!data.success) {
+      throw new Error(`[writers/marketo] mark-unsubscribed failed: ${JSON.stringify(data.errors || [])}`);
+    }
+    const hit = data.result?.[0];
+    if (!hit) {
+      throw new Error('[writers/marketo] mark-unsubscribed returned empty result');
+    }
+    if (hit.status === 'failed') {
+      const reasons = Array.isArray(hit.reasons) && hit.reasons.length
+        ? hit.reasons.map(r => `${r.code}:${r.message}`).join('; ')
+        : 'no reason given';
+      throw new Error(`[writers/marketo] mark-unsubscribed lead ${hit.status}: ${reasons}`);
+    }
+    return {
+      ok:        true,
+      status:    hit.status, // 'updated' | 'skipped' (already unsubscribed)
+      marketoId: String(hit.id != null ? hit.id : marketoId),
+    };
+  } catch (err) {
+    throw unwrapAxiosError(err, '[writers/marketo] mark-unsubscribed');
+  }
+}
+
+module.exports = {
+  writeToMarketo,
+  writeMarketoCompany,
+  readMarketoLeadById,
+  markMarketoLeadUnsubscribed,
+  // Test seams — let suites reset the per-process caches between cases.
+  _resetLeadSchemaCache,
+  _resetCompaniesEndpointFlag,
+};

@@ -191,15 +191,18 @@ async function createCustomFields({ fields, baseUrl, token } = {}) {
       const detail = err.response?.data?.errors
         ? JSON.stringify(err.response.data.errors)
         : err.message;
+      const isPerm = status === 401 || status === 403;
       results.push({
-        name: field.name,
-        status: 'failed',
-        error: status ? `HTTP ${status}: ${detail}` : detail,
-        httpStatus: status,
+        name:         field.name,
+        status:       'failed',
+        error:        status ? `HTTP ${status}: ${detail}` : detail,
+        httpStatus:   status,
+        accessDenied: isPerm || undefined,
       });
-      // 401/403 typically means schema-write permission is missing; bail
-      // since every subsequent field will fail the same way.
-      if (status === 401 || status === 403) break;
+      // 401/403 means the API user lacks schema-write permission. Mark
+      // the remaining fields as denied (without firing the same denied
+      // request again) so the operator sees every blocked field.
+      if (isPerm) bailedOnPermission = true;
     }
   }
 

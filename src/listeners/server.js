@@ -19,6 +19,7 @@ const { router: engagementRouter } = require('../routes/engagement');
 const { router: outboundWebhooksRouter } = require('../routes/outboundWebhooks');
 const { router: transferRouter } = require('../routes/transfer');
 const { router: marketoSetupRouter } = require('../routes/marketoSetup');
+const { router: simulateRouter } = require('../routes/simulate');
 const fieldmap = require('../config/fieldmap.json');
 
 const QUEUE_NAME = process.env.SYNC_QUEUE_NAME || 'sync-events';
@@ -248,6 +249,7 @@ function createApp() {
   app.use('/api/webhooks', apiJson, outboundWebhooksRouter);
   app.use('/api/transfer', apiJson, transferRouter);
   app.use('/api/marketo', apiJson, marketoSetupRouter);
+  app.use('/api/simulate', apiJson, simulateRouter);
   app.get('/api/fieldmap', (_req, res) => res.json(fieldmap));
 
   // ── React SPA static serving (built to web/dist) ──────────────────────────

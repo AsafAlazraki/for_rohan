@@ -75,6 +75,22 @@ export async function setupMarketoCustomFields() {
   }));
 }
 
+export async function simulateUnsubscribe({ crmContactId, email, marketoId }) {
+  return handle(await fetch(url('/api/simulate/unsubscribe'), {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ crmContactId, email, marketoId }),
+  }));
+}
+
+export async function unsubscribeAndSync({ sourceIds }) {
+  return handle(await fetch(url('/api/transfer/unsubscribe-and-sync'), {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ sourceIds }),
+  }));
+}
+
 export async function getEventStats(graphPeriod = '24h') {
   return handle(await fetch(url(`/api/events/stats?graphPeriod=${graphPeriod}`)));
 }

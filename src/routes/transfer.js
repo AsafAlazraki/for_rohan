@@ -5,6 +5,7 @@ const logger = require('../audit/logger');
 const { enqueue } = require('../queue/producer');
 const { QUEUE_NAME } = require('../queue/queue');
 const { previewBundle, runBundle, VALID_ENTITIES } = require('../engine/bundleSync');
+const { runUnsubscribeAndSync } = require('../engine/unsubscribeBundle');
 const { getDynamicsToken } = require('../auth/dynamics');
 const { getMarketoToken }  = require('../auth/marketo');
 
@@ -141,6 +142,49 @@ router.post('/with-company', async (req, res) => {
   } catch (e) {
     logger.error({ err: e.message }, '[transfer/with-company] failed');
     res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/transfer/unsubscribe-and-sync
+ * Body: { sourceIds: [marketo-lead-id, ...] }
+ *
+ * Combined operator flow:
+ *   1. Update each Marketo Person's `unsubscribed` flag to true.
+ *   2. Trigger the same path a real Marketo unsubscribe webhook would —
+ *      the authority guard routes to handleGlobalUnsubscribe which PATCHes
+ *      the matching Dynamics Contact's `donotbulkemail = true`.
+ *
+ * Response shape per row: `{ marketoId, email, marketo:{ok,status},
+ * dynamics:{ok,contactId,patched}, summary, error? }`. The `summary`
+ * field is an operator-friendly one-liner like "Email = Do Not Allow
+ * on Dynamics Contact <guid>."
+ */
+router.post('/unsubscribe-and-sync', async (req, res) => {
+  const { sourceIds } = req.body || {};
+  if (!Array.isArray(sourceIds) || sourceIds.length === 0) {
+    return res.status(400).json({ error: 'sourceIds must be a non-empty array' });
+  }
+  if (sourceIds.length > MAX_BUNDLE_ROWS) {
+    return res.status(400).json({ error: `Too many rows: max ${MAX_BUNDLE_ROWS} per request` });
+  }
+  try {
+    const mktToken = await getMarketoToken();
+    const result = await runUnsubscribeAndSync({
+      sourceIds: sourceIds.map(String),
+      mktToken,
+    });
+    logger.info({
+      total: result.summary.total,
+      marketoUpdated: result.summary.marketoUpdated,
+      dynamicsPatched: result.summary.dynamicsPatched,
+      skipped: result.summary.skipped,
+      failed: result.summary.failed,
+    }, '[transfer/unsubscribe-and-sync] complete');
+    res.json(result);
+  } catch (err) {
+    logger.error({ err: err.message }, '[transfer/unsubscribe-and-sync] failed');
+    res.status(500).json({ error: err.message });
   }
 });
 

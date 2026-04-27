@@ -10,6 +10,7 @@
     "test": "jest --coverage --forceExit",
     "test:unit": "jest tests/unit --forceExit",
     "test:e2e": "jest tests/e2e --forceExit",
+    "smoke": "node scripts/smoke.js",
     "lint": "eslint \"src/**/*.js\"",
     "build:web": "npm --prefix web run build",
     "setup": "npm ci && npm --prefix web ci && npm run verify",
