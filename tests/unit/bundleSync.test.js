@@ -357,6 +357,121 @@ describe('runBundle', () => {
   });
 });
 
+describe('company info propagates onto Person body', () => {
+  // These tests prove the user-visible fix: when a Contact / Lead is
+  // bundle-synced, the Marketo Lead record actually carries the company
+  // name + billing address + industry etc. — even when the standalone
+  // Companies endpoint isn't called.
+
+  it('with-company contact: company + billingCity + industry land on the Person body in preview', async () => {
+    readDynamicsById
+      .mockResolvedValueOnce({
+        contactid:                 'c1',
+        emailaddress1:             'alice@acme.com',
+        firstname:                 'Alice',
+        _parentcustomerid_value:   'acc1',
+      })
+      .mockResolvedValueOnce({
+        accountid:        'acc1',
+        name:             'Acme Ltd',
+        accountnumber:    'AN-7',
+        address1_city:    'Auckland',
+        address1_country: 'New Zealand',
+        websiteurl:       'https://acme.example',
+        telephone1:       '555-9000',
+        numberofemployees: 250,
+      });
+
+    const r = await previewBundle({
+      entity: 'contact', sourceIds: ['c1'],
+      dynToken: 'd', mktToken: 'm',
+    });
+
+    expect(r.rows[0].plan).toBe('with-company');
+    // Person body now carries company + Account-level enrichment fields.
+    expect(r.rows[0].personBody).toMatchObject({
+      email:             'alice@acme.com',
+      firstName:         'Alice',
+      crmEntityType:     'contact',
+      crmContactId:      'c1',
+      company:           'Acme Ltd',
+      accountNumber:     'AN-7',
+      billingCity:       'Auckland',
+      billingCountry:    'New Zealand',
+      website:           'https://acme.example',
+      mainPhone:         '555-9000',
+      numberOfEmployees: 250,
+    });
+    // Account body still produced separately for the Companies-API write.
+    expect(r.rows[0].accountBody).toMatchObject({
+      company:        'Acme Ltd',
+      billingCity:    'Auckland',
+      billingCountry: 'New Zealand',
+    });
+  });
+
+  it('with-company contact: same merge happens on the live runBundle path before writeToMarketo', async () => {
+    readDynamicsById
+      .mockResolvedValueOnce({
+        contactid:               'c1',
+        emailaddress1:           'alice@acme.com',
+        _parentcustomerid_value: 'acc1',
+      })
+      .mockResolvedValueOnce({
+        accountid:     'acc1',
+        name:          'Acme Ltd',
+        address1_city: 'Auckland',
+      });
+    writeMarketoCompany.mockResolvedValueOnce({ targetId: 'mkto-co-1', status: 'created' });
+    writeToMarketo.mockResolvedValueOnce({ targetId: 'mkto-lead-1', status: 'created' });
+
+    await runBundle({
+      entity: 'contact', sourceIds: ['c1'],
+      dynToken: 'd', mktToken: 'm', jobIdPrefix: 'merge-test',
+    });
+
+    // The Person body sent to Marketo should include the merged company info.
+    expect(writeToMarketo).toHaveBeenCalledTimes(1);
+    const personBody = writeToMarketo.mock.calls[0][0];
+    expect(personBody).toMatchObject({
+      email:         'alice@acme.com',
+      crmEntityType: 'contact',
+      crmContactId:  'c1',
+      company:       'Acme Ltd',
+      billingCity:   'Auckland',
+    });
+  });
+
+  it('Lead with companyname carries `company` to Marketo even when no CRM Account exists', async () => {
+    // The "we used to skip" case — now downgrades to person-only with the
+    // companyname forwarded so Marketo can still create / link the Company.
+    readDynamicsById.mockResolvedValueOnce({
+      leadid:        'l1',
+      emailaddress1: 'b@c.com',
+      firstname:     'Bob',
+      companyname:   'Untracked Co',
+    });
+    resolveAccount.mockResolvedValueOnce({ targetId: null });
+    writeToMarketo.mockResolvedValueOnce({ targetId: 'mkto-lead', status: 'created' });
+
+    const r = await runBundle({
+      entity: 'lead', sourceIds: ['l1'],
+      dynToken: 'd', mktToken: 'm', jobIdPrefix: 'lead-no-account',
+    });
+
+    expect(r.results[0].plan).toBe('person-only');
+    expect(r.results[0].personSynced).toBe(true);
+    expect(writeMarketoCompany).not.toHaveBeenCalled();
+
+    const personBody = writeToMarketo.mock.calls[0][0];
+    // Even without a CRM Account, the lead's companyname is mapped to
+    // Marketo's `company` field — so Marketo can dedup the Company itself.
+    expect(personBody.company).toBe('Untracked Co');
+    expect(personBody.crmEntityType).toBe('lead');
+    expect(personBody.crmLeadId).toBe('l1');
+  });
+});
+
 describe('VALID_ENTITIES', () => {
   it('only allows contact and lead', () => {
     expect(VALID_ENTITIES).toEqual(['contact', 'lead']);
