@@ -6,6 +6,80 @@ const { getConfig } = require('../config/loader');
 
 const DEFAULT_RETRY_AFTER_MS = 10_000;
 const MAX_429_RETRIES        = 3;
+const LEAD_SCHEMA_TTL_MS     = 60 * 60 * 1000; // 1h
+
+// ── Lead-schema cache + unknown-field filter ────────────────────────────────
+// Marketo rejects a Lead push (per-record `status: 'skipped'`, error 1006) if
+// the payload references a field that was never defined in Marketo's Field
+// Management. To keep the integration "just works" even before the operator
+// creates custom fields like crmEntityType / crmContactId, we fetch the lead
+// schema once per hour and silently drop unknown keys with a one-time WARN
+// per missing field. Operators can later create the fields in Marketo Admin
+// (or run scripts/marketo-create-custom-fields.js) and the next sync after
+// the cache TTL expires will start sending them.
+let _leadSchemaCache    = null;     // Set<string> | null
+let _leadSchemaCachedAt = 0;
+const _missingFieldsWarned = new Set();
+
+function _resetLeadSchemaCache() {
+  _leadSchemaCache    = null;
+  _leadSchemaCachedAt = 0;
+  _missingFieldsWarned.clear();
+}
+
+async function fetchLeadSchema(baseUrl, token) {
+  const now = Date.now();
+  if (_leadSchemaCache && (now - _leadSchemaCachedAt) < LEAD_SCHEMA_TTL_MS) {
+    return _leadSchemaCache;
+  }
+  try {
+    const { data } = await axios.get(
+      `${baseUrl}/rest/v1/leads/describe.json`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!data || !data.success) {
+      logger.warn(
+        { errors: data && data.errors },
+        '[writers/marketo] lead schema fetch returned success:false — pushes will not be filtered',
+      );
+      return null;
+    }
+    const names = new Set();
+    for (const f of (data.result || [])) {
+      // describe.json returns entries shaped like { rest: { name: '…' }, … }
+      const n = f && f.rest && f.rest.name;
+      if (n) names.add(n);
+    }
+    _leadSchemaCache    = names;
+    _leadSchemaCachedAt = now;
+    return names;
+  } catch (err) {
+    logger.warn(
+      { err: err.message },
+      '[writers/marketo] lead schema fetch failed — pushes will not be filtered',
+    );
+    return null;
+  }
+}
+
+function filterUnknownLeadFields(payload, schema) {
+  if (!schema || !payload || typeof payload !== 'object') return payload;
+  const out = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (schema.has(k)) {
+      out[k] = v;
+    } else if (!_missingFieldsWarned.has(k)) {
+      _missingFieldsWarned.add(k);
+      logger.warn(
+        { field: k },
+        '[writers/marketo] field not in Marketo lead schema — dropping. ' +
+          'Create the field in Marketo Admin → Field Management (or run ' +
+          '`node scripts/marketo-create-custom-fields.js`) to enable sync.',
+      );
+    }
+  }
+  return out;
+}
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -61,13 +135,18 @@ async function writeToMarketo(data, token, _attempt = 0) {
   const baseUrl = await getConfig('MARKETO_BASE_URL');
   if (!baseUrl) throw new Error('[writers/marketo] MARKETO_BASE_URL not set');
 
+  // Drop fields Marketo's Lead schema doesn't define — would otherwise fail
+  // the whole record with `1006:Field 'X' not found`. Schema is cached 1h.
+  const schema   = await fetchLeadSchema(baseUrl, token);
+  const filtered = filterUnknownLeadFields(data, schema);
+
   try {
     const { data: body } = await axios.post(
       `${baseUrl}/rest/v1/leads.json`,
       {
         action:      'createOrUpdate',
         lookupField: 'email',
-        input:       [data],
+        input:       [filtered],
       },
       {
         headers: {
@@ -121,9 +200,36 @@ async function writeToMarketo(data, token, _attempt = 0) {
  * @param {number} [_attempt]
  * @returns {Promise<{ targetId: string|null, status: string }>}
  */
+// Some Marketo tenants don't expose the Companies sync endpoint at all
+// (subscription tier, API permissions, or tenant config). We detect this once
+// per process and switch to a cached "unavailable" mode so subsequent
+// company pushes return a soft `skipped` result instead of repeatedly
+// hammering a 404. Lead pushes still work, and Marketo auto-creates the
+// Company on the fly via `lead.company` dedup.
+let _companiesEndpointUnavailable = false;
+let _companiesUnavailableWarned   = false;
+
+function isCompaniesEndpointMissing(err) {
+  const status = err?.response?.status;
+  if (status === 404 || status === 405) return true;
+  // Marketo error code 610 = "Requested resource not found"
+  const errors = err?.response?.data?.errors;
+  if (Array.isArray(errors) && errors.some(e => String(e.code) === '610')) return true;
+  return false;
+}
+
+function _resetCompaniesEndpointFlag() {
+  _companiesEndpointUnavailable = false;
+  _companiesUnavailableWarned   = false;
+}
+
 async function writeMarketoCompany(data, token, _attempt = 0) {
   const baseUrl = await getConfig('MARKETO_BASE_URL');
   if (!baseUrl) throw new Error('[writers/marketo] MARKETO_BASE_URL not set');
+
+  if (_companiesEndpointUnavailable) {
+    return { targetId: null, status: 'skipped', reason: 'companies-endpoint-unavailable' };
+  }
 
   try {
     const { data: body } = await axios.post(
@@ -142,7 +248,22 @@ async function writeMarketoCompany(data, token, _attempt = 0) {
     );
 
     if (!body.success) {
-      throw new Error(`[writers/marketo] Company push failed: ${JSON.stringify(body.errors)}`);
+      // success:false at the envelope level with a 610 error means the
+      // endpoint isn't present on this tenant — flip the unavailable flag.
+      const errors = body.errors || [];
+      if (errors.some(e => String(e.code) === '610')) {
+        _companiesEndpointUnavailable = true;
+        if (!_companiesUnavailableWarned) {
+          _companiesUnavailableWarned = true;
+          logger.warn(
+            '[writers/marketo] Companies endpoint not available on this tenant — ' +
+            'subsequent Company writes will be soft-skipped. Lead pushes carry the ' +
+            '`company` field; Marketo will create/match the Company on the fly via dedup.',
+          );
+        }
+        return { targetId: null, status: 'skipped', reason: 'companies-endpoint-unavailable' };
+      }
+      throw new Error(`[writers/marketo] Company push failed: ${JSON.stringify(errors)}`);
     }
 
     const hit = body.result?.[0];
@@ -168,6 +289,17 @@ async function writeMarketoCompany(data, token, _attempt = 0) {
       );
       await sleep(waitMs);
       return writeMarketoCompany(data, token, _attempt + 1);
+    }
+    if (isCompaniesEndpointMissing(err)) {
+      _companiesEndpointUnavailable = true;
+      if (!_companiesUnavailableWarned) {
+        _companiesUnavailableWarned = true;
+        logger.warn(
+          '[writers/marketo] Companies endpoint returned 404/405 — disabling company writes for this process. ' +
+          'Lead pushes will still set `company` so Marketo can dedup the Company itself.',
+        );
+      }
+      return { targetId: null, status: 'skipped', reason: 'companies-endpoint-unavailable' };
     }
     throw unwrapAxiosError(err, '[writers/marketo] Company push');
   }

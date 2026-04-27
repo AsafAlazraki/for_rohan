@@ -883,70 +883,6 @@ export default function SyncView({ flash }) {
         );
       })()}
 
-      {/* Bundle sync row — Sync with Company */}
-      {(entity === 'contact' || entity === 'lead') && !inListMode && (
-        <div
-          className="sv-bundle-row"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16,
-            margin: '0 24px 16px',
-            padding: '12px 18px',
-            borderRadius: 12,
-            background: 'rgba(168, 85, 247, 0.06)',
-            border: '1px solid rgba(168, 85, 247, 0.2)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-            <Building2 size={18} style={{ color: '#c4b5fd' }} />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                Sync with Company
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                Push the selected {entity}{selectedDyn.length === 1 ? '' : 's'} together with their associated Account / Company.
-                {selectedDyn.length > 0 && ` (${selectedDyn.length} selected)`}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={!bundleEligible || transferring}
-            onClick={onBundleSyncClick}
-            title={
-              !bundleEligible
-                ? (selectedDyn.length === 0
-                    ? 'Select ≥1 Dynamics-side row first'
-                    : direction === 'm2d'
-                      ? 'Bundle sync only runs Dynamics → Marketo'
-                      : 'Not available')
-                : `Preview ${selectedDyn.length} row${selectedDyn.length === 1 ? '' : 's'} before pushing`
-            }
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              height: 38,
-              padding: '0 18px',
-              borderRadius: 19,
-              border: 'none',
-              background: bundleEligible ? '#a855f7' : 'rgba(168, 85, 247, 0.18)',
-              color: bundleEligible ? '#fff' : 'rgba(196, 181, 253, 0.55)',
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: bundleEligible && !transferring ? 'pointer' : 'not-allowed',
-              boxShadow: bundleEligible ? '0 4px 12px rgba(168, 85, 247, 0.25)' : 'none',
-              transition: 'all 0.2s ease',
-            }}
-          >
-            <Building2 size={14} />
-            Sync with Company
-          </button>
-        </div>
-      )}
-
       {/* Two columns + arrow */}
       <div className="sv-stage">
         <Column
@@ -966,60 +902,112 @@ export default function SyncView({ flash }) {
           transferred={dyn.transferred}
         />
 
-        <div className={'sv-arrow dir-' + direction + (flying ? ' flying' : '')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+        <div className={'sv-arrow dir-' + direction + (flying ? ' flying' : '')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
           <div className="sv-arrow-track">
             <span className="sv-arrow-glyph">{directionGlyph}</span>
           </div>
-          
-          <button
-            className="primary danger"
-            disabled={transferring || currentRule.kind === 'forbidden'}
-            onClick={onSyncClick}
-            title={currentRule.kind === 'forbidden' ? currentRule.note : undefined}
-            style={{
-              height: 48,
-              padding: '0 40px',
+
+          {(() => {
+            // Uniform sizing across the three action buttons. Same shape;
+            // colour communicates the action.
+            const baseStyle = {
+              width: 200,
+              height: 38,
+              padding: '0 16px',
+              fontSize: 13,
               fontWeight: 700,
-              fontSize: 15,
-              borderRadius: 24,
-              boxShadow: currentRule.kind === 'forbidden' ? 'none' : '0 4px 12px rgba(235, 87, 87, 0.3)',
+              borderRadius: 20,
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
               transition: 'all 0.2s ease',
-              width: 180,
-              cursor: currentRule.kind === 'forbidden' ? 'not-allowed' : 'pointer',
-              opacity: currentRule.kind === 'forbidden' ? 0.4 : 1,
-            }}
-          >
-            {transferring
+              cursor: 'pointer',
+              letterSpacing: '0.2px',
+            };
+            const forbidden = currentRule.kind === 'forbidden';
+
+            const syncSelectedDisabled = transferring || forbidden;
+            const syncSelectedLabel = transferring
               ? (inListMode ? 'Working…' : 'Syncing…')
-              : inListMode
-                ? 'Push as Named List'
-                : 'Sync Selected'}
-          </button>
+              : inListMode ? 'Push as Named List' : 'Sync Selected';
+            const syncSelectedStyle = {
+              ...baseStyle,
+              background: syncSelectedDisabled ? 'rgba(239, 68, 68, 0.18)' : '#ef4444',
+              color:      syncSelectedDisabled ? 'rgba(252, 165, 165, 0.6)' : '#fff',
+              boxShadow:  syncSelectedDisabled ? 'none' : '0 4px 12px rgba(239, 68, 68, 0.3)',
+              cursor:     syncSelectedDisabled ? 'not-allowed' : 'pointer',
+              opacity:    forbidden ? 0.4 : 1,
+            };
 
-          {!inListMode && (
-            <button
-              className="ghost"
-              disabled={transferring || currentRule.kind === 'forbidden'}
-              onClick={onSyncAllClick}
-              title={currentRule.kind === 'forbidden' ? currentRule.note : undefined}
-              style={{
-                marginTop: -8,
-                fontSize: 13,
-                fontWeight: 600,
-                color: 'var(--accent)',
-                padding: '8px 16px',
-                borderRadius: 20,
-                background: 'rgba(56, 189, 248, 0.05)',
-                border: '1px solid rgba(56, 189, 248, 0.1)',
-                cursor: currentRule.kind === 'forbidden' ? 'not-allowed' : 'pointer',
-                opacity: currentRule.kind === 'forbidden' ? 0.4 : 1,
-              }}
-            >
-              Sync All Records
-            </button>
-          )}
+            const syncAllDisabled = transferring || forbidden || inListMode;
+            const syncAllStyle = {
+              ...baseStyle,
+              background: syncAllDisabled ? 'rgba(56, 189, 248, 0.06)' : 'rgba(56, 189, 248, 0.08)',
+              color:      syncAllDisabled ? 'rgba(125, 211, 252, 0.5)' : 'var(--accent)',
+              border:     '1px solid rgba(56, 189, 248, 0.25)',
+              cursor:     syncAllDisabled ? 'not-allowed' : 'pointer',
+              opacity:    syncAllDisabled ? 0.6 : 1,
+            };
 
-          <div className="sv-arrow-label" style={{ fontSize: 12, opacity: 0.6 }}>
+            const bundleDisabled = transferring || !bundleEligible;
+            const bundleTitle = !bundleEligible
+              ? (selectedDyn.length === 0
+                  ? 'Select ≥1 Dynamics-side row first'
+                  : direction === 'm2d'
+                    ? 'Bundle sync only runs Dynamics → Marketo'
+                    : 'Bundle sync is only for Contact / Lead')
+              : `Preview ${selectedDyn.length} row${selectedDyn.length === 1 ? '' : 's'} before pushing`;
+            const bundleStyle = {
+              ...baseStyle,
+              background: bundleDisabled ? 'rgba(168, 85, 247, 0.18)' : '#a855f7',
+              color:      bundleDisabled ? 'rgba(196, 181, 253, 0.6)' : '#fff',
+              boxShadow:  bundleDisabled ? 'none' : '0 4px 12px rgba(168, 85, 247, 0.3)',
+              cursor:     bundleDisabled ? 'not-allowed' : 'pointer',
+            };
+
+            return (
+              <>
+                <button
+                  type="button"
+                  disabled={syncSelectedDisabled}
+                  onClick={onSyncClick}
+                  title={forbidden ? currentRule.note : undefined}
+                  style={syncSelectedStyle}
+                >
+                  {syncSelectedLabel}
+                </button>
+
+                {!inListMode && (
+                  <button
+                    type="button"
+                    disabled={syncAllDisabled}
+                    onClick={onSyncAllClick}
+                    title={forbidden ? currentRule.note : undefined}
+                    style={syncAllStyle}
+                  >
+                    Sync All Records
+                  </button>
+                )}
+
+                {(entity === 'contact' || entity === 'lead') && !inListMode && (
+                  <button
+                    type="button"
+                    disabled={bundleDisabled}
+                    onClick={onBundleSyncClick}
+                    title={bundleTitle}
+                    style={bundleStyle}
+                  >
+                    <Building2 size={14} />
+                    Sync with Company{selectedDyn.length > 0 ? ` (${selectedDyn.length})` : ''}
+                  </button>
+                )}
+              </>
+            );
+          })()}
+
+          <div className="sv-arrow-label" style={{ fontSize: 12, opacity: 0.6, marginTop: 4 }}>
             {DIRECTIONS.find(d => d.value === direction)?.label}
           </div>
         </div>
@@ -1252,8 +1240,14 @@ export default function SyncView({ flash }) {
 }
 
 // ─── Bundle Sync modal ─────────────────────────────────────────────────────
+// ─── Bundle Sync modal — polished version ──────────────────────────────────
+const BUNDLE_PURPLE = '#a855f7';
+const BUNDLE_PURPLE_LIGHT = '#c4b5fd';
+
 function BundleSyncModal({ preview, progress, result, entity, onCancel, onConfirm, onClose }) {
   const [expanded, setExpanded] = useState(() => new Set());
+  // Per-row "show raw bodies" toggle — bodies are heavy, default to hidden.
+  const [bodiesShown, setBodiesShown] = useState(() => new Set());
 
   function toggleRow(id) {
     setExpanded(prev => {
@@ -1262,65 +1256,212 @@ function BundleSyncModal({ preview, progress, result, entity, onCancel, onConfir
       return next;
     });
   }
+  function toggleBodies(id) {
+    setBodiesShown(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
-  // Three render modes: preview, progress, result.
   const showPreview  = preview && !progress && !result;
   const showProgress = !!progress;
   const showResult   = !!result && !progress;
 
+  const titleText =
+    showPreview ? 'Sync with Company — Preview' :
+    showProgress ? 'Syncing…' :
+    showResult ? 'Sync Complete' : '';
+  const subtitle =
+    showPreview && preview ? `${preview.summary.total} ${entity}${preview.summary.total === 1 ? '' : 's'} ready to review` :
+    showProgress && progress ? `Row ${progress.current} of ${progress.total}` :
+    showResult && result ? `${result.summary.total} processed` : '';
+
   return (
-    <div className="sv-modal-backdrop" style={{ zIndex: 1200 }}>
+    <div
+      className="sv-modal-backdrop"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1200,
+        background: 'rgba(5, 11, 20, 0.65)',
+        backdropFilter: 'blur(6px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+        animation: 'sv-fade-in 0.18s ease',
+      }}
+    >
+      <style>{`
+        @keyframes sv-fade-in { from { opacity: 0 } to { opacity: 1 } }
+        @keyframes sv-modal-rise {
+          from { opacity: 0; transform: translateY(8px) scale(0.985); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes sv-progress-pulse {
+          0%, 100% { opacity: 0.85 }
+          50%      { opacity: 0.45 }
+        }
+      `}</style>
+
       <div
         className="sv-modal"
         onClick={e => e.stopPropagation()}
-        style={{ width: 'min(720px, 92vw)', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+        style={{
+          width: 'min(740px, 96vw)', maxHeight: '88vh',
+          display: 'flex', flexDirection: 'column',
+          background: 'var(--panel)',
+          borderRadius: 16,
+          border: '1px solid rgba(168, 85, 247, 0.18)',
+          boxShadow: '0 30px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+          overflow: 'hidden',
+          animation: 'sv-modal-rise 0.22s cubic-bezier(0.4, 0, 0.2, 1)',
+        }}
       >
+        {/* Header */}
         <div
-          className="sv-modal-title"
-          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '18px 22px', borderBottom: '1px solid var(--border)' }}
+          style={{
+            padding: '20px 24px',
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.10), rgba(168, 85, 247, 0.02))',
+            borderBottom: '1px solid rgba(168, 85, 247, 0.15)',
+            display: 'flex', alignItems: 'center', gap: 14,
+          }}
         >
-          <Building2 size={18} style={{ color: '#c4b5fd' }} />
-          <span style={{ fontSize: 16, fontWeight: 700 }}>
-            {showPreview && 'Sync with Company — Preview'}
-            {showProgress && 'Syncing…'}
-            {showResult && 'Sync Complete'}
-          </span>
+          <div
+            style={{
+              width: 40, height: 40, borderRadius: 10,
+              background: 'rgba(168, 85, 247, 0.14)',
+              border: '1px solid rgba(168, 85, 247, 0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: BUNDLE_PURPLE_LIGHT, flexShrink: 0,
+            }}
+          >
+            <Building2 size={20} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.1px' }}>
+              {titleText}
+            </div>
+            {subtitle && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                {subtitle}
+              </div>
+            )}
+          </div>
+          {!showProgress && (
+            <button
+              type="button"
+              onClick={showResult ? onClose : onCancel}
+              aria-label="Close"
+              style={{
+                width: 32, height: 32, borderRadius: 8,
+                border: 'none', background: 'rgba(255,255,255,0.04)',
+                color: 'var(--muted)', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+              onMouseOver={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'var(--text)'; }}
+              onMouseOut={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'var(--muted)'; }}
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
 
-        <div className="sv-modal-body" style={{ flex: 1, overflowY: 'auto', padding: 22 }}>
-          {showPreview && <BundlePreviewBody preview={preview} entity={entity} expanded={expanded} toggleRow={toggleRow} />}
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+          {showPreview && (
+            <BundlePreviewBody
+              preview={preview}
+              entity={entity}
+              expanded={expanded}
+              toggleRow={toggleRow}
+              bodiesShown={bodiesShown}
+              toggleBodies={toggleBodies}
+            />
+          )}
           {showProgress && <BundleProgressBody progress={progress} />}
-          {showResult && <BundleResultBody result={result} entity={entity} expanded={expanded} toggleRow={toggleRow} />}
+          {showResult && (
+            <BundleResultBody
+              result={result}
+              entity={entity}
+              expanded={expanded}
+              toggleRow={toggleRow}
+            />
+          )}
         </div>
 
-        <div className="sv-modal-actions" style={{ padding: '14px 22px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        {/* Footer */}
+        <div
+          style={{
+            padding: '14px 24px',
+            borderTop: '1px solid var(--border)',
+            background: 'rgba(255,255,255,0.01)',
+            display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10,
+          }}
+        >
           {showPreview && (
             <>
-              <button type="button" className="ghost" onClick={onCancel}>Cancel</button>
               <button
                 type="button"
-                disabled={preview.summary.total === 0 || (preview.summary.willSkip + preview.summary.errors === preview.summary.total)}
-                onClick={onConfirm}
+                onClick={onCancel}
                 style={{
-                  padding: '8px 18px',
-                  borderRadius: 19,
-                  border: 'none',
-                  background: '#a855f7',
-                  color: '#fff',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(168, 85, 247, 0.25)',
+                  height: 36, padding: '0 18px', borderRadius: 18,
+                  border: '1px solid var(--border)',
+                  background: 'transparent', color: 'var(--muted)',
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  transition: 'color 0.15s, border-color 0.15s',
                 }}
+                onMouseOver={e => { e.currentTarget.style.color = 'var(--text)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
+                onMouseOut={e => { e.currentTarget.style.color = 'var(--muted)'; e.currentTarget.style.borderColor = 'var(--border)'; }}
               >
-                Push {preview.summary.withCompany + preview.summary.personOnly} now
+                Cancel
               </button>
+              {(() => {
+                const pushable = preview.summary.withCompany + preview.summary.personOnly;
+                const disabled = pushable === 0;
+                return (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={onConfirm}
+                    style={{
+                      height: 36, padding: '0 22px', borderRadius: 18,
+                      border: 'none',
+                      background: disabled ? 'rgba(168, 85, 247, 0.18)' : `linear-gradient(135deg, ${BUNDLE_PURPLE}, #9333ea)`,
+                      color: disabled ? 'rgba(196, 181, 253, 0.55)' : '#fff',
+                      fontSize: 13, fontWeight: 700,
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      boxShadow: disabled ? 'none' : '0 6px 18px rgba(168, 85, 247, 0.35)',
+                      transition: 'transform 0.12s, box-shadow 0.15s',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}
+                    onMouseOver={e => { if (!disabled) e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseOut={e => { if (!disabled) e.currentTarget.style.transform = 'translateY(0)'; }}
+                  >
+                    Push {pushable} now
+                    <ArrowRight size={14} />
+                  </button>
+                );
+              })()}
             </>
           )}
           {showProgress && (
-            <button type="button" className="ghost" disabled>Working…</button>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Working… you can leave this open.
+            </span>
           )}
           {showResult && (
-            <button type="button" className="primary" onClick={onClose}>Close</button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                height: 36, padding: '0 22px', borderRadius: 18,
+                border: 'none',
+                background: `linear-gradient(135deg, ${BUNDLE_PURPLE}, #9333ea)`,
+                color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                boxShadow: '0 6px 18px rgba(168, 85, 247, 0.35)',
+              }}
+            >
+              Done
+            </button>
           )}
         </div>
       </div>
@@ -1328,188 +1469,352 @@ function BundleSyncModal({ preview, progress, result, entity, onCancel, onConfir
   );
 }
 
-function BundleSummaryCounts({ counts }) {
-  const items = [
-    { label: 'With company', value: counts.withCompany,  color: '#a855f7' },
-    { label: 'Person only',  value: counts.personOnly,   color: '#7dd3fc' },
-    { label: 'Will skip',    value: counts.willSkip,     color: '#facc15' },
-    { label: 'Errors',       value: counts.errors,       color: '#ef4444' },
-  ].filter(i => i.value !== undefined);
-
+// ── Stat cards ──────────────────────────────────────────────────────────────
+function BundleStatGrid({ items }) {
+  const visible = items.filter(i => i.value !== undefined && i.value !== null);
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${items.length}, 1fr)`, gap: 10, marginBottom: 18 }}>
-      {items.map(i => (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(${visible.length}, 1fr)`,
+        gap: 10,
+        marginBottom: 18,
+      }}
+    >
+      {visible.map(i => (
         <div
           key={i.label}
           style={{
-            padding: '12px',
-            borderRadius: 10,
-            background: `${i.color}10`,
+            padding: '14px 12px',
+            borderRadius: 12,
+            background: `linear-gradient(180deg, ${i.color}1a, ${i.color}05)`,
             border: `1px solid ${i.color}33`,
             textAlign: 'center',
+            transition: 'transform 0.15s, border-color 0.15s',
           }}
         >
-          <div style={{ fontSize: 22, fontWeight: 800, color: i.color, lineHeight: 1.2 }}>{i.value}</div>
-          <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 4 }}>{i.label}</div>
+          <div
+            style={{
+              fontSize: 26, fontWeight: 800, color: i.color, lineHeight: 1,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {i.value}
+          </div>
+          <div
+            style={{
+              fontSize: 10, color: 'var(--muted)',
+              textTransform: 'uppercase', letterSpacing: '0.6px',
+              marginTop: 6, fontWeight: 600,
+            }}
+          >
+            {i.label}
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
-function BundlePreviewBody({ preview, entity, expanded, toggleRow }) {
+// ── Body — Preview ──────────────────────────────────────────────────────────
+function BundlePreviewBody({ preview, entity, expanded, toggleRow, bodiesShown, toggleBodies }) {
   return (
     <>
-      <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--muted)' }}>
-        Reviewing <strong>{preview.summary.total}</strong> {entity}{preview.summary.total === 1 ? '' : 's'}. Click a row to expand.
-      </p>
-      <BundleSummaryCounts counts={preview.summary} />
-      <BundleRowList rows={preview.rows} expanded={expanded} toggleRow={toggleRow} mode="preview" />
+      <BundleStatGrid
+        items={[
+          { label: 'With company', value: preview.summary.withCompany, color: BUNDLE_PURPLE },
+          { label: 'Person only',  value: preview.summary.personOnly,  color: '#7dd3fc' },
+          { label: 'Will skip',    value: preview.summary.willSkip,    color: '#facc15' },
+          { label: 'Errors',       value: preview.summary.errors,      color: '#ef4444' },
+        ]}
+      />
+      <BundleRowList
+        rows={preview.rows}
+        expanded={expanded}
+        toggleRow={toggleRow}
+        bodiesShown={bodiesShown}
+        toggleBodies={toggleBodies}
+        mode="preview"
+        entity={entity}
+      />
     </>
   );
 }
 
+// ── Body — Progress ─────────────────────────────────────────────────────────
 function BundleProgressBody({ progress }) {
+  const pct = progress.total > 0 ? Math.min(100, Math.round((progress.current / progress.total) * 100)) : 0;
   return (
-    <div style={{ padding: '40px 0', textAlign: 'center' }}>
-      <RefreshCw size={32} className="spin" style={{ color: '#a855f7', marginBottom: 16 }} />
-      <div style={{ fontSize: 15, fontWeight: 600 }}>
-        Syncing {progress.current} of {progress.total}…
+    <div style={{ padding: '24px 0 8px', textAlign: 'center' }}>
+      <div
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 64, height: 64,
+          borderRadius: '50%',
+          background: 'rgba(168, 85, 247, 0.10)',
+          border: '1px solid rgba(168, 85, 247, 0.3)',
+          marginBottom: 18,
+          animation: 'sv-progress-pulse 1.6s ease-in-out infinite',
+        }}
+      >
+        <RefreshCw size={28} className="spin" style={{ color: BUNDLE_PURPLE_LIGHT }} />
       </div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-        Sequential — Account first, then Person. Failures don't abort the batch.
+      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+        Syncing {progress.current} of {progress.total}
+      </div>
+      <div
+        style={{
+          margin: '20px auto 8px',
+          width: '70%',
+          height: 6,
+          borderRadius: 99,
+          background: 'rgba(255,255,255,0.06)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: '100%',
+            background: `linear-gradient(90deg, ${BUNDLE_PURPLE}, #9333ea)`,
+            borderRadius: 99,
+            transition: 'width 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+        />
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, lineHeight: 1.6 }}>
+        Sequential — Account first, then Person.<br />
+        Per-row failures are recorded; the batch keeps going.
       </div>
     </div>
   );
 }
 
+// ── Body — Result ───────────────────────────────────────────────────────────
 function BundleResultBody({ result, entity, expanded, toggleRow }) {
   return (
     <>
-      <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--muted)' }}>
-        Pushed <strong>{result.summary.total}</strong> {entity}{result.summary.total === 1 ? '' : 's'}. Click a row for detail.
-      </p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 18 }}>
-        <ResultStat label="Persons synced"  value={result.summary.personsSynced}  color="#22c55e" />
-        <ResultStat label="Companies synced" value={result.summary.accountsSynced} color="#a855f7" />
-        <ResultStat label="Skipped"         value={result.summary.skipped}        color="#facc15" />
-        <ResultStat label="Failed"          value={result.summary.failed}         color="#ef4444" />
-      </div>
-      <BundleRowList rows={result.results} expanded={expanded} toggleRow={toggleRow} mode="result" />
+      <BundleStatGrid
+        items={[
+          { label: 'Persons',     value: result.summary.personsSynced,  color: '#22c55e' },
+          { label: 'Companies',   value: result.summary.accountsSynced, color: BUNDLE_PURPLE },
+          { label: 'Skipped',     value: result.summary.skipped,        color: '#facc15' },
+          { label: 'Failed',      value: result.summary.failed,         color: '#ef4444' },
+        ]}
+      />
+      <BundleRowList
+        rows={result.results}
+        expanded={expanded}
+        toggleRow={toggleRow}
+        mode="result"
+        entity={entity}
+      />
     </>
   );
 }
 
-function ResultStat({ label, value, color }) {
+// ── Row list ────────────────────────────────────────────────────────────────
+function previewTone(plan) {
+  if (plan === 'with-company') return BUNDLE_PURPLE;
+  if (plan === 'person-only')  return '#7dd3fc';
+  if (plan === 'skip')         return '#facc15';
+  return '#ef4444';
+}
+function resultTone(r) {
+  if (r.personSynced) return '#22c55e';
+  if (r.skipReason)   return '#facc15';
+  return '#ef4444';
+}
+function previewLabel(r) {
+  if (r.plan === 'with-company') return 'Person + Company';
+  if (r.plan === 'person-only')  return 'Person only';
+  if (r.plan === 'skip')         return 'Skip';
+  return 'Error';
+}
+function resultLabel(r) {
+  if (r.personSynced) return r.accountSynced ? 'Synced (with company)' : 'Synced';
+  if (r.skipReason)   return 'Skipped';
+  return 'Failed';
+}
+
+function BundleRowList({ rows, expanded, toggleRow, bodiesShown, toggleBodies, mode }) {
+  if (rows.length === 0) {
+    return (
+      <div style={{ padding: 20, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>
+        No rows.
+      </div>
+    );
+  }
   return (
-    <div style={{ padding: 12, borderRadius: 10, background: `${color}10`, border: `1px solid ${color}33`, textAlign: 'center' }}>
-      <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 4 }}>{label}</div>
-    </div>
+    <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {rows.map(r => (
+        <BundleRow
+          key={r.sourceId}
+          r={r}
+          isOpen={expanded.has(r.sourceId)}
+          toggle={() => toggleRow(r.sourceId)}
+          bodiesOpen={bodiesShown ? bodiesShown.has(r.sourceId) : false}
+          toggleBodies={toggleBodies ? () => toggleBodies(r.sourceId) : null}
+          mode={mode}
+        />
+      ))}
+    </ul>
   );
 }
 
-function BundleRowList({ rows, expanded, toggleRow, mode }) {
+function BundleRow({ r, isOpen, toggle, bodiesOpen, toggleBodies, mode }) {
+  const tone  = mode === 'preview' ? previewTone(r.plan) : resultTone(r);
+  const label = mode === 'preview' ? previewLabel(r)     : resultLabel(r);
+  const detail = (mode === 'preview' && r.skipReason)  ? r.skipReason
+               : (mode === 'preview' && r.plan === 'error') ? (r.error || 'unknown')
+               : (mode === 'result'  && r.skipReason)  ? r.skipReason
+               : (mode === 'result'  && !r.personSynced && r.error) ? r.error
+               : null;
+
   return (
-    <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {rows.map(r => {
-        const isOpen = expanded.has(r.sourceId);
-        const tone =
-          mode === 'preview'
-            ? (r.plan === 'with-company' ? '#a855f7'
-              : r.plan === 'person-only' ? '#7dd3fc'
-              : r.plan === 'skip'        ? '#facc15'
-              :                            '#ef4444')
-            : (r.personSynced            ? '#22c55e'
-              : r.skipReason             ? '#facc15'
-              :                            '#ef4444');
-
-        const label =
-          mode === 'preview'
-            ? (r.plan === 'with-company' ? 'Sync Person + Company'
-              : r.plan === 'person-only' ? 'Person only — no company'
-              : r.plan === 'skip'        ? `Skip — ${r.skipReason}`
-              :                            `Error — ${r.error || 'unknown'}`)
-            : (r.personSynced
-                ? `Synced${r.accountSynced ? ' (with company)' : ''}`
-                : r.skipReason
-                  ? `Skipped — ${r.skipReason}`
-                  : `Failed — ${r.error || 'unknown'}`);
-
-        return (
-          <li
-            key={r.sourceId}
+    <li
+      style={{
+        borderRadius: 10,
+        background: isOpen ? `${tone}08` : 'rgba(255,255,255,0.015)',
+        border: `1px solid ${isOpen ? tone + '55' : tone + '22'}`,
+        transition: 'background 0.15s, border-color 0.15s',
+      }}
+    >
+      <div
+        onClick={toggle}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 12, padding: '11px 14px', cursor: 'pointer', userSelect: 'none',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+          <ChevronRightIcon
+            size={14}
             style={{
-              padding: '10px 12px',
-              borderRadius: 8,
-              background: 'rgba(255,255,255,0.02)',
-              border: `1px solid ${tone}33`,
+              color: 'var(--muted)', flexShrink: 0,
+              transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+              transition: 'transform 0.18s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
-          >
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
             <div
-              onClick={() => toggleRow(r.sourceId)}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, cursor: 'pointer' }}
+              style={{
+                fontSize: 13, fontWeight: 600,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                color: 'var(--text)',
+              }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                {isOpen ? <ChevronDown size={14} style={{ color: 'var(--muted)' }} /> : <ChevronRightIcon size={14} style={{ color: 'var(--muted)' }} />}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {r.identifier || r.sourceId}
-                  </div>
-                  <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{r.sourceId}</div>
-                </div>
-              </div>
-              <span
-                className="chip"
-                style={{
-                  fontSize: 10,
-                  padding: '3px 8px',
-                  borderRadius: 999,
-                  background: `${tone}22`,
-                  color: tone,
-                  border: `1px solid ${tone}55`,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </span>
+              {r.identifier || r.sourceId}
             </div>
-            {isOpen && (
-              <div style={{ marginTop: 8, padding: 10, background: '#080c12', borderRadius: 6, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', overflow: 'auto' }}>
-                {mode === 'preview' && (
-                  <>
-                    {r.accountBody && (
-                      <>
-                        <div style={{ color: '#c4b5fd', fontWeight: 700, marginBottom: 4 }}>Account body (Marketo Company)</div>
-                        <pre style={{ margin: 0, marginBottom: 10 }}>{JSON.stringify(r.accountBody, null, 2)}</pre>
-                      </>
-                    )}
-                    {r.personBody && (
-                      <>
-                        <div style={{ color: '#7dd3fc', fontWeight: 700, marginBottom: 4 }}>Person body (Marketo Lead)</div>
-                        <pre style={{ margin: 0 }}>{JSON.stringify(r.personBody, null, 2)}</pre>
-                      </>
-                    )}
-                    {!r.accountBody && !r.personBody && r.error && (
-                      <div style={{ color: '#ef4444' }}>{r.error}</div>
-                    )}
-                  </>
-                )}
-                {mode === 'result' && (
-                  <>
-                    <div>Plan: {r.plan || 'n/a'}</div>
-                    <div>Account synced: {r.accountSynced ? `yes (id ${r.accountTargetId || '?'})` : 'no'}</div>
-                    <div>Person synced: {r.personSynced ? `yes (id ${r.personTargetId || '?'})` : 'no'}</div>
-                    {r.skipReason && <div>Skip reason: {r.skipReason}</div>}
-                    {r.error && <div style={{ color: '#ef4444' }}>Error: {r.error}</div>}
-                  </>
-                )}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+            <div
+              className="mono"
+              style={{
+                fontSize: 10, color: 'var(--muted)', marginTop: 2,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
+            >
+              {r.sourceId}
+            </div>
+          </div>
+        </div>
+        <span
+          style={{
+            fontSize: 10, padding: '4px 10px', borderRadius: 99,
+            background: `${tone}1a`, color: tone, border: `1px solid ${tone}55`,
+            whiteSpace: 'nowrap', fontWeight: 700, letterSpacing: '0.3px',
+            textTransform: 'uppercase', flexShrink: 0,
+          }}
+        >
+          {label}
+        </span>
+      </div>
+
+      {isOpen && (
+        <div style={{ padding: '0 14px 12px 38px', fontSize: 12, color: 'var(--muted)' }}>
+          {detail && (
+            <div
+              style={{
+                padding: '8px 10px', borderRadius: 6,
+                background: `${tone}10`, color: tone, marginBottom: 10,
+                fontSize: 12, lineHeight: 1.4,
+              }}
+            >
+              {detail}
+            </div>
+          )}
+
+          {mode === 'preview' && (r.accountBody || r.personBody) && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: bodiesOpen ? 8 : 0 }}>
+              <span style={{ fontSize: 11 }}>
+                {r.accountBody ? '1 Account body + ' : ''}1 Person body to send
+              </span>
+              {toggleBodies && (
+                <button
+                  type="button"
+                  onClick={e => { e.stopPropagation(); toggleBodies(); }}
+                  style={{
+                    fontSize: 11, padding: '4px 10px', borderRadius: 12,
+                    border: '1px solid var(--border)',
+                    background: 'transparent', color: 'var(--muted)', cursor: 'pointer',
+                    fontWeight: 600,
+                  }}
+                >
+                  {bodiesOpen ? 'Hide bodies' : 'Inspect bodies'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {mode === 'preview' && bodiesOpen && (
+            <div
+              style={{
+                padding: 12, background: '#080c12', borderRadius: 8,
+                fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
+                overflow: 'auto', maxHeight: 280,
+                border: '1px solid var(--border)',
+              }}
+            >
+              {r.accountBody && (
+                <>
+                  <div style={{ color: BUNDLE_PURPLE_LIGHT, fontWeight: 700, marginBottom: 6, fontSize: 10, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                    Account → Marketo Company
+                  </div>
+                  <pre style={{ margin: 0, marginBottom: r.personBody ? 12 : 0 }}>{JSON.stringify(r.accountBody, null, 2)}</pre>
+                </>
+              )}
+              {r.personBody && (
+                <>
+                  <div style={{ color: '#7dd3fc', fontWeight: 700, marginBottom: 6, fontSize: 10, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                    Person → Marketo Lead
+                  </div>
+                  <pre style={{ margin: 0 }}>{JSON.stringify(r.personBody, null, 2)}</pre>
+                </>
+              )}
+            </div>
+          )}
+
+          {mode === 'result' && (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 12, lineHeight: 1.7 }}>
+              <li><strong style={{ color: 'var(--text)' }}>Plan:</strong> {r.plan || 'n/a'}</li>
+              <li>
+                <strong style={{ color: 'var(--text)' }}>Company:</strong>{' '}
+                {r.accountSynced
+                  ? <span style={{ color: '#22c55e' }}>synced — id <code style={{ fontFamily: 'var(--mono)' }}>{r.accountTargetId || '?'}</code></span>
+                  : <span>not synced</span>}
+              </li>
+              <li>
+                <strong style={{ color: 'var(--text)' }}>Person:</strong>{' '}
+                {r.personSynced
+                  ? <span style={{ color: '#22c55e' }}>synced — id <code style={{ fontFamily: 'var(--mono)' }}>{r.personTargetId || '?'}</code></span>
+                  : <span>not synced</span>}
+              </li>
+            </ul>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 

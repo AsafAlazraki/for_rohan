@@ -54,6 +54,34 @@ npm run dev:web      # terminal 2 — Vite SPA on :5173 (proxies API to :3000)
 
 Open `http://localhost:5173`. Use the **Admin** tab to fill in Dynamics + Marketo credentials — they hot-reload within 60 seconds, no restart needed.
 
+### One-time Marketo setup (custom fields for the Contact-vs-Lead signal)
+
+The integration stamps three custom Lead fields on every Marketo Person:
+`crmEntityType` (`'contact'` | `'lead'`), `crmContactId`, and `crmLeadId`.
+Marketo requires custom fields to be defined in Admin → Field Management
+**before** values can be pushed to them. You have two paths:
+
+**A. Run the setup script (fastest)** — requires the API user to have the
+"Read-Write Schema Custom Fields" permission:
+
+```bash
+node scripts/marketo-create-custom-fields.js
+```
+
+Idempotent — safe to re-run; existing fields are no-ops.
+
+**B. Create the fields manually** in Marketo Admin → Field Management:
+
+| Field name | Display name | Type |
+|---|---|---|
+| `crmEntityType` | CRM Entity Type | string |
+| `crmContactId`  | CRM Contact ID  | string |
+| `crmLeadId`     | CRM Lead ID     | string |
+
+If you skip this step, the integration **still works** — the writer
+auto-detects unknown fields against Marketo's lead schema (`/leads/describe.json`)
+and silently drops them with a one-time WARN per missing field.
+
 > **Heads up:** if you see `'dapr' is not recognized as an internal or external command`, you ran the wrong command. The Dapr / Service Bus path is **optional** (only used in Azure prod). Locally, just use `npm run dev`.
 
 ---

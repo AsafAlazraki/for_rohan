@@ -263,32 +263,51 @@ async function runBundle({ entity, sourceIds, dynToken, mktToken, jobIdPrefix = 
       try {
         const accountBody = await mapToMarketoAsync(resolution.accountRecord, 'account', { token: mktToken });
         const writeRes    = await writeMarketoCompany(accountBody, mktToken);
-        result.accountSynced   = true;
-        result.accountTargetId = writeRes.targetId;
 
-        await safeLogEvent({
-          source_system: 'dynamics',
-          source_id:     String(resolution.accountId),
-          source_type:   'account',
-          target_system: 'marketo',
-          target_id:     writeRes.targetId,
-          payload:       resolution.accountRecord,
-          status:        'success',
-          reason_category: 'manual',
-          reason_criterion: REASON_CRITERION,
-          job_id:        `${jobIdPrefix}-${sourceId}-account`,
-        });
-        try {
-          emitSync({
-            id:         `${jobIdPrefix}-${sourceId}-account`,
-            source:     'dynamics',
-            target:     'marketo',
-            status:     'success',
-            payload:    resolution.accountRecord,
-            email:      null,
-            entityType: 'account',
+        // Companies endpoint unavailable on this tenant — soft-skip, don't
+        // mark the row as failed. Lead push carries `company` so Marketo
+        // dedups the Company on the fly via lead-side linkage.
+        if (writeRes.status === 'skipped' && writeRes.reason === 'companies-endpoint-unavailable') {
+          await safeLogEvent({
+            source_system: 'dynamics',
+            source_id:     String(resolution.accountId),
+            source_type:   'account',
+            target_system: 'marketo',
+            payload:       resolution.accountRecord,
+            status:        'skipped',
+            error_message: 'companies-endpoint-unavailable',
+            reason_category: 'manual',
+            reason_criterion: `${REASON_CRITERION}:companies-endpoint-unavailable`,
+            job_id:        `${jobIdPrefix}-${sourceId}-account`,
           });
-        } catch { /* bus must never throw */ }
+        } else {
+          result.accountSynced   = true;
+          result.accountTargetId = writeRes.targetId;
+
+          await safeLogEvent({
+            source_system: 'dynamics',
+            source_id:     String(resolution.accountId),
+            source_type:   'account',
+            target_system: 'marketo',
+            target_id:     writeRes.targetId,
+            payload:       resolution.accountRecord,
+            status:        'success',
+            reason_category: 'manual',
+            reason_criterion: REASON_CRITERION,
+            job_id:        `${jobIdPrefix}-${sourceId}-account`,
+          });
+          try {
+            emitSync({
+              id:         `${jobIdPrefix}-${sourceId}-account`,
+              source:     'dynamics',
+              target:     'marketo',
+              status:     'success',
+              payload:    resolution.accountRecord,
+              email:      null,
+              entityType: 'account',
+            });
+          } catch { /* bus must never throw */ }
+        }
       } catch (accountErr) {
         // Per the design: account failure must not block the person push.
         // Marketo will auto-create the Company on the fly via lead.company.
