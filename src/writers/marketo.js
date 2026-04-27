@@ -3,20 +3,22 @@
 const axios  = require('axios');
 const logger = require('../audit/logger');
 const { getConfig } = require('../config/loader');
+const { fetchLeadSchemaFields } = require('../auth/marketoSchema');
 
 const DEFAULT_RETRY_AFTER_MS = 10_000;
 const MAX_429_RETRIES        = 3;
 const LEAD_SCHEMA_TTL_MS     = 60 * 60 * 1000; // 1h
 
 // ── Lead-schema cache + unknown-field filter ────────────────────────────────
-// Marketo rejects a Lead push (per-record `status: 'skipped'`, error 1006) if
-// the payload references a field that was never defined in Marketo's Field
-// Management. To keep the integration "just works" even before the operator
-// creates custom fields like crmEntityType / crmContactId, we fetch the lead
-// schema once per hour and silently drop unknown keys with a one-time WARN
-// per missing field. Operators can later create the fields in Marketo Admin
-// (or run scripts/marketo-create-custom-fields.js) and the next sync after
-// the cache TTL expires will start sending them.
+// Marketo rejects a Lead push (per-record `status: 'skipped'`, error 1006)
+// if the payload references a field that was never defined in Marketo's
+// Field Management. To keep the integration "just works" even before the
+// operator creates custom fields like crmEntityType / crmContactId, we fetch
+// the lead schema once per hour and silently drop unknown keys with a
+// one-time WARN per missing field. Operators can later create the fields
+// (Admin tab → "Set up Marketo fields", `POST /api/marketo/setup-custom-fields`,
+// or `node scripts/marketo-create-custom-fields.js`) and the next sync
+// after cache TTL expires will start sending them.
 let _leadSchemaCache    = null;     // Set<string> | null
 let _leadSchemaCachedAt = 0;
 const _missingFieldsWarned = new Set();
@@ -32,34 +34,12 @@ async function fetchLeadSchema(baseUrl, token) {
   if (_leadSchemaCache && (now - _leadSchemaCachedAt) < LEAD_SCHEMA_TTL_MS) {
     return _leadSchemaCache;
   }
-  try {
-    const { data } = await axios.get(
-      `${baseUrl}/rest/v1/leads/describe.json`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!data || !data.success) {
-      logger.warn(
-        { errors: data && data.errors },
-        '[writers/marketo] lead schema fetch returned success:false — pushes will not be filtered',
-      );
-      return null;
-    }
-    const names = new Set();
-    for (const f of (data.result || [])) {
-      // describe.json returns entries shaped like { rest: { name: '…' }, … }
-      const n = f && f.rest && f.rest.name;
-      if (n) names.add(n);
-    }
-    _leadSchemaCache    = names;
+  const fresh = await fetchLeadSchemaFields({ baseUrl, token });
+  if (fresh) {
+    _leadSchemaCache    = fresh;
     _leadSchemaCachedAt = now;
-    return names;
-  } catch (err) {
-    logger.warn(
-      { err: err.message },
-      '[writers/marketo] lead schema fetch failed — pushes will not be filtered',
-    );
-    return null;
   }
+  return fresh;
 }
 
 function filterUnknownLeadFields(payload, schema) {
@@ -73,8 +53,8 @@ function filterUnknownLeadFields(payload, schema) {
       logger.warn(
         { field: k },
         '[writers/marketo] field not in Marketo lead schema — dropping. ' +
-          'Create the field in Marketo Admin → Field Management (or run ' +
-          '`node scripts/marketo-create-custom-fields.js`) to enable sync.',
+          'Click "Set up Marketo fields" in the SPA admin row, or run ' +
+          '`node scripts/marketo-create-custom-fields.js` to create them.',
       );
     }
   }

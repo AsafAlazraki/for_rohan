@@ -64,6 +64,17 @@ export async function runBundleSync({ entity, sourceIds }) {
   }));
 }
 
+export async function getMarketoSchemaStatus() {
+  return handle(await fetch(url('/api/marketo/schema-status')));
+}
+
+export async function setupMarketoCustomFields() {
+  return handle(await fetch(url('/api/marketo/setup-custom-fields'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  }));
+}
+
 export async function getEventStats(graphPeriod = '24h') {
   return handle(await fetch(url(`/api/events/stats?graphPeriod=${graphPeriod}`)));
 }

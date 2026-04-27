@@ -23,6 +23,7 @@ import {
   getEventsBySource, getServiceBusMessages,
   pullRecords, transferRecords,
   previewBundleSync, runBundleSync,
+  getMarketoSchemaStatus, setupMarketoCustomFields,
 } from '../lib/api.js';
 import { openSyncStream } from '../lib/sse.js';
 
@@ -607,6 +608,50 @@ export default function SyncView({ flash }) {
     runSync(targets);
   }
 
+  // ── Marketo schema status (banner + setup button) ─────────────────────
+  // Surfaces "you haven't created the custom fields yet" up-front instead
+  // of letting the operator hit a silent drop in the writer's auto-filter.
+  const [schemaStatus, setSchemaStatus] = useState(null);   // { ready, missing, schemaAccessible } | null
+  const [schemaSettingUp, setSchemaSettingUp] = useState(false);
+  const [schemaBannerDismissed, setSchemaBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const status = await getMarketoSchemaStatus();
+        if (!cancelled) setSchemaStatus(status);
+      } catch {
+        // Silent — banner just doesn't appear if status check fails.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function onMarketoSetupClick() {
+    setSchemaSettingUp(true);
+    try {
+      const r = await setupMarketoCustomFields();
+      if (r.failed > 0) {
+        flash('err', r.error || `Setup failed: ${r.results.map(x => x.name + (x.error ? ` (${x.error})` : '')).join('; ')}`);
+      } else {
+        flash('ok', `Marketo fields ready — ${r.created} created, ${r.alreadyExisted} already existed.`);
+        // Re-check status so the banner clears.
+        const fresh = await getMarketoSchemaStatus();
+        setSchemaStatus(fresh);
+      }
+    } catch (e) {
+      flash('err', `Setup failed: ${e.message}`);
+    } finally {
+      setSchemaSettingUp(false);
+    }
+  }
+
+  const schemaBannerVisible =
+    schemaStatus
+    && !schemaStatus.ready
+    && !schemaBannerDismissed;
+
   // ── Bundle sync (Sync with Company) ───────────────────────────────────
   // Two-phase flow: preview (read-only) → confirm → live sequential push.
   // Only available D→M, only for Contact / Lead, only with selections on the
@@ -857,6 +902,71 @@ export default function SyncView({ flash }) {
 
 
 
+
+      {/* Marketo schema banner — shown when crmEntityType / crmContactId / crmLeadId aren't yet defined in Marketo */}
+      {schemaBannerVisible && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            margin: '0 24px 12px',
+            padding: '12px 16px',
+            borderRadius: 10,
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.10), rgba(168, 85, 247, 0.02))',
+            border: '1px solid rgba(168, 85, 247, 0.3)',
+          }}
+        >
+          <Building2 size={18} style={{ color: '#c4b5fd', flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+              Marketo schema not yet set up for Contact-vs-Lead filtering
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              The custom fields {(schemaStatus.missing || []).join(', ')} are missing from your Marketo Lead schema.
+              Until they exist, those values are silently dropped from every sync.
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={schemaSettingUp}
+            onClick={onMarketoSetupClick}
+            style={{
+              height: 34,
+              padding: '0 16px',
+              borderRadius: 17,
+              border: 'none',
+              background: schemaSettingUp ? 'rgba(168, 85, 247, 0.18)' : 'linear-gradient(135deg, #a855f7, #9333ea)',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: schemaSettingUp ? 'wait' : 'pointer',
+              boxShadow: schemaSettingUp ? 'none' : '0 4px 12px rgba(168, 85, 247, 0.3)',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {schemaSettingUp && <RefreshCw size={12} className="spin" />}
+            {schemaSettingUp ? 'Setting up…' : 'Set up Marketo fields'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSchemaBannerDismissed(true)}
+            aria-label="Dismiss"
+            title="Dismiss"
+            style={{
+              width: 28, height: 28, borderRadius: 6,
+              border: 'none', background: 'transparent', color: 'var(--muted)',
+              cursor: 'pointer', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {(currentRule.kind === 'conditional' || currentRule.kind === 'forbidden') && (() => {
         const isForbidden = currentRule.kind === 'forbidden';

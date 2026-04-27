@@ -34,6 +34,7 @@
       "country":             { "source": "_ubt_address1_country_value", "type": "lookup", "entitySet": "ubt_countries" },
       "communityMember":     { "source": "ubt_communitymember",      "type": "choice", "optionSet": "ubt_communitymember" },
       "contactAccountType":  { "source": "@derived",                 "type": "derived", "derivation": "parentAccountType" },
+      "company":             { "source": "@derived",                 "type": "derived", "derivation": "parentAccountName" },
       "unsubscribed":        { "source": "donotbulkemail",           "type": "boolean" },
       "crmEntityType":       { "source": "@literal",                 "type": "literal", "value": "contact" },
       "crmContactId":        { "source": "contactid",                "type": "guid" }
@@ -56,6 +57,7 @@
       "crmLeadStatus":       { "source": "statuscode",               "type": "choice", "optionSet": "statuscode" },
       "crmLeadState":        { "source": "statecode",                "type": "choice", "optionSet": "statecode" },
       "communityMember":     { "source": "ubt_communitymember",      "type": "choice", "optionSet": "ubt_communitymember" },
+      "company":             { "source": "companyname",              "type": "text" },
       "unsubscribed":        { "source": "donotbulkemail",           "type": "boolean" },
       "crmEntityType":       { "source": "@literal",                 "type": "literal", "value": "lead" },
       "crmLeadId":           { "source": "leadid",                   "type": "guid" }

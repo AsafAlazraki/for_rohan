@@ -59,8 +59,12 @@ async function resolveAssociatedCompany({ record, entityType, dynToken }) {
     if (!parentId) return { plan: 'person-only' };
     const accountRecord = await readDynamicsById({ entity: 'account', id: parentId });
     if (!accountRecord) {
-      // FK exists but the row is gone (deleted/inactive) — treat as data-quality skip.
-      return { plan: 'skip', skipReason: 'no-resolvable-account' };
+      // FK exists but the Account row is gone or inaccessible. We still push
+      // the Person — its `company` field (resolved via the parentAccountName
+      // derivation or the reader-flatten step) lets Marketo dedup the
+      // Company on the fly. Operators see this in the result modal as
+      // 'person-only · unresolved-account'.
+      return { plan: 'person-only', skipReason: 'unresolved-account' };
     }
     return { plan: 'with-company', accountId: parentId, accountRecord, matchedBy: 'parentcustomerid' };
   }
@@ -73,12 +77,38 @@ async function resolveAssociatedCompany({ record, entityType, dynToken }) {
   if (!ids.accountnumber && !ids.name) return { plan: 'person-only' };
 
   const { targetId, matchedBy } = await resolveAccount({ ids, token: dynToken });
-  if (!targetId) return { plan: 'skip', skipReason: 'no-resolvable-account' };
+  if (!targetId) {
+    // Lead carries a company name in `companyname` but it doesn't match any
+    // CRM Account. Per the operator workflow we DON'T block — push the Lead
+    // with its `company` field set so Marketo can still create / link a
+    // Company on its side. The CRM Account can be created later.
+    return { plan: 'person-only', skipReason: 'unresolved-account' };
+  }
 
   const accountRecord = await readDynamicsById({ entity: 'account', id: targetId });
-  if (!accountRecord) return { plan: 'skip', skipReason: 'no-resolvable-account' };
+  if (!accountRecord) return { plan: 'person-only', skipReason: 'unresolved-account' };
 
   return { plan: 'with-company', accountId: targetId, accountRecord, matchedBy };
+}
+
+/**
+ * Merge fields produced by the Account projection onto the Person body.
+ *
+ * Marketo's Lead schema accepts `company`, `industry`, `annualRevenue`,
+ * `numberOfEmployees`, `mainPhone`, `website`, and the billing address
+ * fields as Lead-level attributes. So even when the standalone Companies
+ * endpoint isn't available on the tenant (or just isn't being used), the
+ * operator still sees company info on the Marketo Person.
+ *
+ * Person fields take precedence — never overwrite something already set
+ * on the Person body.
+ */
+function mergeAccountFieldsOntoPerson(personBody, accountFields) {
+  if (!accountFields) return personBody;
+  for (const [k, v] of Object.entries(accountFields)) {
+    if (personBody[k] === undefined) personBody[k] = v;
+  }
+  return personBody;
 }
 
 function summarize(rows) {
@@ -96,7 +126,10 @@ function summarizeRun(results) {
     total:           results.length,
     personsSynced:   results.filter(r => r.personSynced).length,
     accountsSynced:  results.filter(r => r.accountSynced).length,
-    skipped:         results.filter(r => r.skipReason).length,
+    // Only true skips (plan === 'skip', no Person write attempted). A row
+    // with plan='person-only' + skipReason='unresolved-account' DID push the
+    // Person, so it's not counted here.
+    skipped:         results.filter(r => r.plan === 'skip').length,
     failed:          results.filter(r => r.error && !r.personSynced).length,
   };
 }
@@ -147,6 +180,11 @@ async function previewBundle({ entity, sourceIds, dynToken, mktToken }) {
       let accountBody = null;
       if (resolution.plan === 'with-company') {
         accountBody = await mapToMarketoAsync(resolution.accountRecord, 'account', { token: mktToken });
+        // Surface company / billing / industry / employees on the Person too,
+        // so the Marketo Lead record reflects the company even before the
+        // standalone Companies API call lands (and even when it's not
+        // available on the tenant).
+        mergeAccountFieldsOntoPerson(personBody, accountBody);
       }
 
       rows.push({
@@ -233,6 +271,10 @@ async function runBundle({ entity, sourceIds, dynToken, mktToken, jobIdPrefix = 
       continue;
     }
     result.plan = resolution.plan;
+    // Propagate any informational skipReason (e.g. 'unresolved-account' on a
+    // downgraded person-only) so the UI can show it without misclassifying
+    // the row as a hard skip.
+    if (resolution.skipReason) result.skipReason = resolution.skipReason;
 
     // ── skip ──────────────────────────────────────────────────────────────
     if (resolution.plan === 'skip') {
@@ -333,6 +375,25 @@ async function runBundle({ entity, sourceIds, dynToken, mktToken, jobIdPrefix = 
     try {
       const personBody = await mapToMarketoAsync(record, entity, { token: mktToken });
       await enrichDerived(personBody, record, entity, mktToken);
+
+      // Project the resolved Account through the standard account mapping
+      // and merge company/industry/billing-* onto the Person body so the
+      // Marketo Lead record carries full company info regardless of whether
+      // the Companies endpoint is available.
+      if (resolution.plan === 'with-company' && resolution.accountRecord) {
+        try {
+          const accountFields = await mapToMarketoAsync(
+            resolution.accountRecord, 'account', { token: mktToken },
+          );
+          mergeAccountFieldsOntoPerson(personBody, accountFields);
+        } catch (mergeErr) {
+          logger.warn(
+            { sourceId, err: mergeErr.message },
+            '[bundleSync] could not project account fields onto person — continuing with person body alone',
+          );
+        }
+      }
+
       const writeRes = await writeToMarketo(personBody, mktToken);
       result.personSynced   = true;
       result.personTargetId = writeRes.targetId;

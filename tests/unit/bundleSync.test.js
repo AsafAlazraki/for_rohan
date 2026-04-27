@@ -67,15 +67,17 @@ describe('resolveAssociatedCompany', () => {
     expect(r.matchedBy).toBe('parentcustomerid');
   });
 
-  it('contact with parentcustomerid that 404s → skip', async () => {
+  it('contact with parentcustomerid that 404s → person-only with unresolved-account', async () => {
+    // We previously skipped the row; now we downgrade to person-only and let
+    // the Person carry its `company` field so Marketo can dedup the Company.
     readDynamicsById.mockResolvedValueOnce(null);
     const r = await resolveAssociatedCompany({
       record:     { contactid: 'c1', _parentcustomerid_value: 'gone' },
       entityType: 'contact',
       dynToken:   'tok',
     });
-    expect(r.plan).toBe('skip');
-    expect(r.skipReason).toBe('no-resolvable-account');
+    expect(r.plan).toBe('person-only');
+    expect(r.skipReason).toBe('unresolved-account');
   });
 
   it('lead with no companyname / accountnumber → person-only', async () => {
@@ -105,18 +107,20 @@ describe('resolveAssociatedCompany', () => {
     });
   });
 
-  it('lead with companyname that does NOT resolve → skip', async () => {
+  it('lead with companyname that does NOT resolve → person-only with unresolved-account', async () => {
+    // Downgraded — Lead push proceeds carrying its `company` field so Marketo
+    // dedups the Company on its side. CRM Account creation is left to the operator.
     resolveAccount.mockResolvedValueOnce({ targetId: null, matchedBy: null });
     const r = await resolveAssociatedCompany({
       record:     { leadid: 'l1', companyname: 'No Such Co' },
       entityType: 'lead',
       dynToken:   'tok',
     });
-    expect(r.plan).toBe('skip');
-    expect(r.skipReason).toBe('no-resolvable-account');
+    expect(r.plan).toBe('person-only');
+    expect(r.skipReason).toBe('unresolved-account');
   });
 
-  it('lead with companyname that resolves but the Account read 404s → skip', async () => {
+  it('lead with companyname that resolves but the Account read 404s → person-only', async () => {
     resolveAccount.mockResolvedValueOnce({ targetId: 'orphan', matchedBy: 'name' });
     readDynamicsById.mockResolvedValueOnce(null);
     const r = await resolveAssociatedCompany({
@@ -124,8 +128,8 @@ describe('resolveAssociatedCompany', () => {
       entityType: 'lead',
       dynToken:   'tok',
     });
-    expect(r.plan).toBe('skip');
-    expect(r.skipReason).toBe('no-resolvable-account');
+    expect(r.plan).toBe('person-only');
+    expect(r.skipReason).toBe('unresolved-account');
   });
 });
 
@@ -148,14 +152,14 @@ describe('previewBundle', () => {
     readDynamicsById
       .mockResolvedValueOnce({ contactid: 'c1', emailaddress1: 'a@b.com', firstname: 'A', _parentcustomerid_value: 'acc1' })
       .mockResolvedValueOnce({ accountid: 'acc1', name: 'Acme' });
-    // Row 2: contact, person-only
+    // Row 2: contact, person-only (no parent at all)
     readDynamicsById
       .mockResolvedValueOnce({ contactid: 'c2', emailaddress1: 'b@b.com', firstname: 'B' });
-    // Row 3: contact, parent FK doesn't resolve → skip
+    // Row 3: contact, parent FK doesn't resolve → downgraded to person-only
     readDynamicsById
       .mockResolvedValueOnce({ contactid: 'c3', emailaddress1: 'c@b.com', _parentcustomerid_value: 'gone' })
       .mockResolvedValueOnce(null);
-    // Row 4: source not found
+    // Row 4: source not found → still skipped (only true skip case left)
     readDynamicsById
       .mockResolvedValueOnce(null);
 
@@ -168,16 +172,19 @@ describe('previewBundle', () => {
     expect(r.summary).toEqual({
       total:       4,
       withCompany: 1,
-      personOnly:  1,
-      willSkip:    2, // gone-FK + source-not-found
+      personOnly:  2, // c2 (no parent) + c3 (parent FK 404 — downgraded)
+      willSkip:    1, // c4 source-not-found
       errors:      0,
     });
     expect(r.rows[0]).toMatchObject({ sourceId: 'c1', plan: 'with-company', accountId: 'acc1' });
     expect(r.rows[0].personBody.crmEntityType).toBe('contact');
     expect(r.rows[0].personBody.crmContactId).toBe('c1');
+    // The Account fields get merged onto the Person body so the Marketo Lead
+    // carries the company name even before the Companies API call lands.
+    expect(r.rows[0].personBody.company).toBe('Acme');
     expect(r.rows[0].accountBody).toMatchObject({ company: 'Acme' });
-    expect(r.rows[1]).toMatchObject({ sourceId: 'c2', plan: 'person-only' });
-    expect(r.rows[2]).toMatchObject({ sourceId: 'c3', plan: 'skip', skipReason: 'no-resolvable-account' });
+    expect(r.rows[1]).toMatchObject({ sourceId: 'c2', plan: 'person-only', skipReason: null });
+    expect(r.rows[2]).toMatchObject({ sourceId: 'c3', plan: 'person-only', skipReason: 'unresolved-account' });
     expect(r.rows[3]).toMatchObject({ sourceId: 'c4', plan: 'skip', skipReason: 'source-record-not-found' });
   });
 
@@ -266,10 +273,11 @@ describe('runBundle', () => {
     }));
   });
 
-  it('skip row produces a logSkip and no writes', async () => {
-    readDynamicsById
-      .mockResolvedValueOnce({ leadid: 'l1', companyname: 'No Such Co' });
-    resolveAccount.mockResolvedValueOnce({ targetId: null });
+  it('skip row (source-record-not-found) produces a logSkip and no writes', async () => {
+    // Truly missing source — readDynamicsById returns null. This is the only
+    // case that still skips entirely; unresolved-account downgrades to
+    // person-only and proceeds.
+    readDynamicsById.mockResolvedValueOnce(null);
 
     const r = await runBundle({
       entity: 'lead', sourceIds: ['l1'],
@@ -277,7 +285,7 @@ describe('runBundle', () => {
     });
 
     expect(r.results[0]).toMatchObject({
-      plan: 'skip', skipReason: 'no-resolvable-account',
+      plan: 'skip', skipReason: 'source-record-not-found',
       personSynced: false, accountSynced: false,
     });
     expect(writeMarketoCompany).not.toHaveBeenCalled();
@@ -286,8 +294,28 @@ describe('runBundle', () => {
       source: 'dynamics', target: 'marketo',
       sourceType: 'lead', sourceId: 'l1',
       category: 'manual',
-      criterion: `${REASON_CRITERION}:no-resolvable-account`,
+      criterion: `${REASON_CRITERION}:source-record-not-found`,
     }));
+  });
+
+  it('lead with unresolvable company → person-only push, NO logSkip, NO company write', async () => {
+    readDynamicsById.mockResolvedValueOnce({ leadid: 'l1', emailaddress1: 'a@b.com', companyname: 'Unknown Co' });
+    resolveAccount.mockResolvedValueOnce({ targetId: null });
+    writeToMarketo.mockResolvedValueOnce({ targetId: 'mkto-l1' });
+
+    const r = await runBundle({
+      entity: 'lead', sourceIds: ['l1'],
+      dynToken: 'd', mktToken: 'm', jobIdPrefix: 'test',
+    });
+
+    expect(r.results[0]).toMatchObject({
+      plan: 'person-only',
+      skipReason: 'unresolved-account',
+      personSynced: true,
+      accountSynced: false,
+    });
+    expect(writeMarketoCompany).not.toHaveBeenCalled();
+    expect(writeToMarketo).toHaveBeenCalledTimes(1);
   });
 
   it('person-only row writes Person without touching Account', async () => {

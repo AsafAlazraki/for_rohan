@@ -72,9 +72,41 @@ async function primaryContactFlag({ record, token }) {
   }
 }
 
+/**
+ * Resolve the parent Account's `name` for a Contact record so the projected
+ * Marketo Lead carries a `company` value. Tries fastest path first:
+ *   1. `record.company`         — set by readers/dynamics flatten step
+ *   2. `record.parentcustomerid_account.name` — raw $expand shape
+ *   3. fetch /accounts({id})?$select=name using `_parentcustomerid_value`
+ *
+ * Returns null if no parent is referenced. Used by the contact entity's
+ * `company` field mapping.
+ */
+async function parentAccountName({ record, token }) {
+  if (record?.company && typeof record.company === 'string') return record.company;
+  const flat = record?.parentcustomerid_account?.name;
+  if (flat) return flat;
+
+  const parentId = record?._parentcustomerid_value;
+  if (!parentId || !token) return null;
+
+  const base = await dynamicsBase();
+  try {
+    const { data } = await axios.get(`${base}/accounts(${parentId})`, {
+      headers: headers(token),
+      params:  { $select: 'name' },
+    });
+    return data?.name ?? null;
+  } catch (err) {
+    if (err.response?.status === 404) return null;
+    throw err;
+  }
+}
+
 const RESOLVERS = Object.freeze({
   parentAccountType,
   primaryContactFlag,
+  parentAccountName,
 });
 
 /**

@@ -533,10 +533,10 @@ button.primary.danger { background: var(--err); color: #fff; }
 button.primary.danger:hover { filter: brightness(1.1); }
 
 .sv-stage {
-  display: grid; grid-template-columns: 1fr 180px 1fr;
-  gap: 12px; align-items: stretch; margin-bottom: 16px;
+  display: grid; grid-template-columns: 1fr 240px 1fr;
+  gap: 24px; align-items: stretch; margin-bottom: 16px;
   flex: 1;
-  min-height: 0; 
+  min-height: 0;
 }
 
 .sv-col {
