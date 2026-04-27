@@ -1,12 +1,32 @@
 # Manual Test Playbook
 
-How to verify the two operator-visible flows by hand. Pre-reqs: backend on
+How to verify the operator-visible flows by hand. Pre-reqs: backend on
 `:3000`, SPA on `:5173`, `.env` filled with valid Dynamics + Marketo
 credentials, `npm run verify` clean, `db/schema.sql` applied.
 
-The automated suite covers all of this with mocked I/O — see
-`tests/integration/marketoUnsubscribeFlow.test.js` and
-`tests/unit/bundleSync.test.js` for the wired-up versions.
+Automated coverage lives in `tests/integration/*Flow.test.js` and
+`tests/unit/bundleSync.test.js` — and the simplest end-to-end proof
+that doesn't need real systems is **`npm run smoke`**, which exercises
+every flow below against URL-routed mock HTTP and prints the actual
+bytes that would have hit Marketo / Dynamics.
+
+---
+
+## 0. The fastest possible smoke test (no real systems)
+
+```bash
+npm run smoke
+```
+
+Runs 10 scenarios end-to-end: bundle sync (full-fat / narrow schema /
+Companies endpoint 404 / Lead unresolvable / preview), unsubscribe alone
+(happy path / email fallback / no Contact / no identifier), and the new
+combined Unsubscribe & Sync flow. Prints the actual Marketo + Dynamics
+HTTP bodies. ALL ASSERTIONS PASSED at the bottom = the integration's
+bytes are right end-to-end.
+
+Use this before every demo. If smoke fails, don't bother with the
+sections below — fix the regression first.
 
 ---
 
@@ -165,6 +185,78 @@ a manual-creation panel listing the exact field names and types.
 - **Audit DB**: `SELECT * FROM sync_events WHERE reason_criterion LIKE 'manual:sync-with-company%' ORDER BY created_at DESC LIMIT 20;`
 - **Marketo Person record** — open it in Marketo Lead Database and
   confirm the new fields are populated.
+
+---
+
+## C. "Unsubscribe & Sync" combined flow (Marketo column → Dynamics)
+
+### What it should do
+
+When you click **Unsubscribe & Sync** on selected Marketo Person rows,
+the integration:
+
+1. Looks up each Marketo Lead by id (to capture email + crmContactId).
+2. POSTs `/rest/v1/leads.json` with `action=updateOnly`, `unsubscribed=true`.
+   Marketo confirms (`status: 'updated'` or `'skipped'` if already true).
+3. Synthesises a Marketo-source job with `{ unsubscribed:true, email,
+   crmContactId? }` and feeds it through the live worker.
+4. Authority guard classifies it as `GLOBAL_UNSUBSCRIBE`.
+5. `handleGlobalUnsubscribe` resolves the Person to a Dynamics Contact
+   and PATCHes `/contacts({id})` with body `{donotbulkemail:true}`.
+6. Returns a per-row JSON like:
+   ```json
+   {
+     "marketoId": "12345",
+     "email":     "alice@acme.com",
+     "marketo":   { "ok": true, "status": "updated" },
+     "dynamics":  { "ok": true, "contactId": "...", "patched": { "donotbulkemail": true } },
+     "summary":   "Email = Do Not Allow on Dynamics Contact <guid>."
+   }
+   ```
+
+### Pre-requisites
+
+- The Marketo Lead must already have a `crmContactId` field populated
+  (or have an email that matches a Dynamics Contact). Otherwise the
+  Dynamics step skips with `contact-not-resolvable`.
+- The Marketo API user needs write permission on the Lead's
+  `unsubscribed` field (standard Marketo REST permission).
+
+### Step-by-step
+
+1. **SyncView** → Entity = **Contact** → Direction = **Marketo →
+   Dynamics (m2d)** (or **Dynamics ↔ Marketo (both)**).
+2. **Pull Marketo records.**
+3. Tick the Marketo Person(s) you want to unsubscribe.
+4. Click **Unsubscribe & Sync** (4th button in the arrow column,
+   amber gradient, shows the selected count in parentheses).
+5. Modal opens with a spinner and the step-by-step reference text.
+   On completion the modal shows two side-by-side cards per row
+   (Marketo / Dynamics) plus the "Email = Do Not Allow" summary.
+6. **"Show JSON" toggle** dumps the full result for that row so you
+   can copy the exact response.
+7. **In Marketo**: open the Person — `unsubscribed = true`.
+8. **In Dynamics**: open the Contact — Bulk Email preference flips
+   from **Allow** to **Do Not Allow**.
+
+### Expected variations
+
+| Marketo Lead has | Result |
+|---|---|
+| Active Dynamics Contact match (via `crmContactId` or email) | Both Marketo + Dynamics PATCH succeed. Summary: "Email = Do Not Allow on Dynamics Contact &lt;guid&gt;." |
+| Stale `crmContactId`, valid email, real Contact by email | Falls through to email tier, still succeeds. |
+| Email that only matches a Dynamics Lead (no Contact) | Marketo updates ✓; Dynamics step skipped (`contact-not-resolvable`). Per spec, Marketo cannot touch Dynamics Lead consent. |
+| No identifier on the Marketo row | Should never happen — the SPA filters out rows without an `id`. |
+| Marketo write fails (e.g. 403, 5xx) | Row returns `marketo: { ok: false, error: ... }`, Dynamics step skipped. |
+
+### Single-record alternative — "Simulate Unsubscribe" panel
+
+If you don't have Marketo records pulled in SyncView and just want to
+test the Dynamics-side patch: there's a panel near the top of SyncView
+with **email + contactid inputs** and a "Simulate Unsubscribe" button.
+This skips the Marketo PATCH (assumes Marketo already says
+unsubscribed=true) and just runs the Dynamics-side handler. Useful for
+quick iteration.
 
 ---
 
