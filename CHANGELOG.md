@@ -118,7 +118,7 @@ Files changed:
 | File | Change |
 |---|---|
 | `src/config/fieldmap.json` | Added 10 entries under `crmToMarketo.account`. |
-| `src/readers/dynamics.js` | Added `address1_line1` + `accountnumber` + 6 `ubt_*` fields to `SELECT_FIELDS.account`. |
+| `src/readers/dynamics.js` | Added `address1_line1` + `accountnumber` to `SELECT_FIELDS.account`. **Note**: tenant-custom `ubt_*` fields are deliberately NOT in the `$select` — including a column that doesn't exist in a given Dynamics tenant fails the whole read with OData 400. The fieldmap still references them; if the source webhook PostImage includes them, the mapper picks them up; if not, they're silently dropped. |
 
 ### Documentation
 

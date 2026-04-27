@@ -25,13 +25,17 @@ const SELECT_FIELDS = {
     'leadsourcecode',
   ],
   account: [
+    // OOTB Dataverse columns only. Tenant-custom `ubt_*` fields referenced in
+    // fieldmap.json's crmToMarketo.account block (eProfile, accountType,
+    // marketType, tradingModel, keyAccountManager, industryClassification)
+    // are NOT $select-ed here — including a column that doesn't exist in a
+    // given tenant fails the whole read with OData 400. If the source row
+    // happens to include those custom fields via webhook PostImage, the
+    // mapper still picks them up; if not, they're silently dropped (which is
+    // the correct behaviour for an absent field).
     'accountid','name','accountnumber','websiteurl','telephone1','industrycode',
     'numberofemployees','revenue','address1_line1','address1_city',
     'address1_stateorprovince','address1_country','address1_postalcode',
-    // Custom ubt_* fields read by the bundle-sync mapper. Listed explicitly so
-    // OData $select includes them; missing ones are silently null on the wire.
-    'ubt_eprofile','ubt_accounttype','ubt_markettype','ubt_tradingmodel',
-    '_ubt_keyaccountmanager_value','_ubt_industryclassification_value',
   ],
 };
 
